@@ -1,0 +1,39 @@
+{
+  "name": "wl_backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "amqplib": "^2.0.1",
+    "argon2": "^0.45.1",
+    "aws-sdk": "^2.1693.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.1",
+    "helmet": "^8.3.0",
+    "ioredis": "^5.11.1",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.11.0",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.2",
+    "qrcode": "^1.5.4",
+    "sequelize": "^6.37.8",
+    "socket.io": "^4.8.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.2",
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2",
+    "typescript": "^7.0.2"
+  }
+}
