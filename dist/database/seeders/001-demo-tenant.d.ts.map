@@ -1,0 +1,1 @@
+{"version":3,"file":"001-demo-tenant.d.ts","sourceRoot":"","sources":["../../../src/database/seeders/001-demo-tenant.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAE,MAAM,WAAW,CAAC;AAK3C,wBAAsB,EAAE,CAAC,cAAc,EAAE,cAAc,GAAG,OAAO,CAAC,IAAI,CAAC,CAiBtE;AAED,wBAAsB,IAAI,CAAC,cAAc,EAAE,cAAc,GAAG,OAAO,CAAC,IAAI,CAAC,CAExE"}
