@@ -1,0 +1,12 @@
+// .sequelizerc — tells sequelize-cli where to find configs, migrations, seeders.
+// We use ts-node/register so migration/seeder files can be written in TypeScript.
+require('ts-node/register');
+
+const path = require('path');
+
+module.exports = {
+  'config': path.resolve('src/database/config.js'),
+  'models-path': path.resolve('src/modules'),
+  'seeders-path': path.resolve('src/database/seeders'),
+  'migrations-path': path.resolve('src/database/migrations'),
+};
