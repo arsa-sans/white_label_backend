@@ -1,0 +1,1 @@
+{"version":3,"file":"009-create-wallets.d.ts","sourceRoot":"","sources":["../../../src/database/migrations/009-create-wallets.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAa,MAAM,WAAW,CAAC;AAEtD,wBAAsB,EAAE,CAAC,cAAc,EAAE,cAAc,GAAG,OAAO,CAAC,IAAI,CAAC,CA4DtE;AAED,wBAAsB,IAAI,CAAC,cAAc,EAAE,cAAc,GAAG,OAAO,CAAC,IAAI,CAAC,CAExE"}
