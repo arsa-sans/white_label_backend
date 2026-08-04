@@ -1,12 +1,3 @@
-/**
- * src/config/rabbitmq.ts
- * amqplib connection + channel manager.
- * Provides shared connection and a helper to get/create channels.
- *
- * Exchange topology:
- *   - whitelabel.events (topic) — for all domain events
- *     Routing keys: order.paid, ticket.issued, seat.sold, wallet.topup, refund.processed
- */
 import amqp, { ChannelModel, Channel } from 'amqplib';
 import { env } from './env';
 
