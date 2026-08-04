@@ -1,4 +1,9 @@
 import { Router } from 'express';
+import { validateGateScan, syncGateLogs } from './gate.controller';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'gate', status: 'ok' }));
+
+router.post('/validate', validateGateScan);
+router.post('/sync-logs', syncGateLogs);
+
 export default router;

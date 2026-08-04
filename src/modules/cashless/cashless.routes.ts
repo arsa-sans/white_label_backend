@@ -1,4 +1,10 @@
 import { Router } from 'express';
+import { getWallet, topupWallet } from './cashless.controller';
+import { authenticate } from '../../middlewares/auth.middleware';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'cashless', status: 'ok' }));
+
+router.get('/wallet', authenticate, getWallet);
+router.post('/topup', authenticate, topupWallet);
+
 export default router;

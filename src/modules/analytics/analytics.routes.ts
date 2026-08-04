@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import { getDashboardMetrics } from './analytics.controller';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'analytics', status: 'ok' }));
+
+router.get('/dashboard', getDashboardMetrics);
+
 export default router;

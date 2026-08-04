@@ -1,4 +1,10 @@
 import { Router } from 'express';
+import { listEvents, getEventById, getEventSeats } from './event.controller';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'event', status: 'ok' }));
+
+router.get('/', listEvents);
+router.get('/:id', getEventById);
+router.get('/:id/seats', getEventSeats);
+
 export default router;

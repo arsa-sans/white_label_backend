@@ -1,4 +1,11 @@
 import { Router } from 'express';
+import { lockSeat, getMyTickets, getDynamicQrToken } from './ticket.controller';
+import { authenticate } from '../../middlewares/auth.middleware';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'ticket', status: 'ok' }));
+
+router.post('/lock-seat', authenticate, lockSeat);
+router.get('/my-tickets', authenticate, getMyTickets);
+router.get('/:id/qr-token', authenticate, getDynamicQrToken);
+
 export default router;

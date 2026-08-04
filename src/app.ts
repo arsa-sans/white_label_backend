@@ -22,8 +22,26 @@ const app: Application = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., curl, Postman) and localhost dev origins
+      const allowed = [
+        env.CORS_ORIGIN,
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
     credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-idempotency-key',
+      'x-tenant-id',
+    ],
   })
 );
 app.use(express.json());

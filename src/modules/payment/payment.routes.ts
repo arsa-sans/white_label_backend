@@ -1,4 +1,10 @@
 import { Router } from 'express';
+import { createOrder, processPayment } from './payment.controller';
+import { authenticate } from '../../middlewares/auth.middleware';
+
 const router = Router();
-router.get('/health', (_req, res) => res.json({ module: 'payment', status: 'ok' }));
+
+router.post('/orders', authenticate, createOrder);
+router.post('/orders/:id/pay', authenticate, processPayment);
+
 export default router;
