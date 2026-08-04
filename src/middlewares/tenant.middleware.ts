@@ -39,11 +39,15 @@ export async function resolveTenant(
       : `tenant:host:${host.split(':')[0]}`; // strip port
 
     // Try cache first
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      req.tenant = JSON.parse(cached);
-      next();
-      return;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        req.tenant = JSON.parse(cached);
+        next();
+        return;
+      }
+    } catch {
+      // Redis unavailable, fallback to DB query
     }
 
     let tenant: TenantRow | undefined;
@@ -80,7 +84,11 @@ export async function resolveTenant(
       secondaryColor: tenant.secondary_color,
     };
 
-    await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(tenantData));
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(tenantData));
+    } catch {
+      // Redis unavailable, ignore cache store error
+    }
     req.tenant = tenantData;
     next();
   } catch (err) {

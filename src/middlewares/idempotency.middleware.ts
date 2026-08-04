@@ -44,12 +44,16 @@ export async function cacheIdempotentResponse(
   statusCode: number,
   body: unknown
 ): Promise<void> {
-  const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
-  await redis.setex(
-    cacheKey,
-    IDEMPOTENCY_TTL,
-    JSON.stringify({ statusCode, body, cachedAt: new Date().toISOString() })
-  );
+  try {
+    const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
+    await redis.setex(
+      cacheKey,
+      IDEMPOTENCY_TTL,
+      JSON.stringify({ statusCode, body, cachedAt: new Date().toISOString() })
+    );
+  } catch {
+    // Redis unavailable, ignore idempotency caching error
+  }
 }
 
 /**
@@ -60,10 +64,14 @@ export async function checkIdempotencyCache(
   idempotencyKey: string,
   userId: string
 ): Promise<{ statusCode: number; body: unknown } | null> {
-  const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
-  const cached = await redis.get(cacheKey);
-  if (!cached) return null;
-  return JSON.parse(cached) as { statusCode: number; body: unknown };
+  try {
+    const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
+    const cached = await redis.get(cacheKey);
+    if (!cached) return null;
+    return JSON.parse(cached) as { statusCode: number; body: unknown };
+  } catch {
+    return null;
+  }
 }
 
 declare global {
