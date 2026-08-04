@@ -22,17 +22,23 @@ export async function resolveTenant(
   next: NextFunction
 ): Promise<void> {
   try {
-    // In dev mode, use the in-memory dataStore fallback directly
-    // (avoids needing MySQL + Redis running for local UI testing)
-    if (env.isDev) {
-      const demoTenant = dataStore.tenants[0];
-      if (demoTenant) {
+    const isDevOrTest = env.isDev || env.NODE_ENV === 'test';
+
+    // In dev / test mode, use the in-memory dataStore fallback directly if header/host not matched
+    if (isDevOrTest) {
+      const tenantIdHeader = req.headers['x-tenant-id'] as string | undefined;
+      const found = tenantIdHeader
+        ? dataStore.tenants.find((t) => t.id === tenantIdHeader)
+        : dataStore.tenants[0];
+
+      if (found) {
         req.tenant = {
-          id: demoTenant.id,
-          name: demoTenant.name,
-          primaryColor: demoTenant.primary_color,
-          secondaryColor: demoTenant.secondary_color,
+          id: found.id,
+          name: found.name,
+          primaryColor: found.primary_color,
+          secondaryColor: found.secondary_color,
         };
+        req.tenantId = found.id;
         next();
         return;
       }
@@ -56,6 +62,7 @@ export async function resolveTenant(
         const cached = await redis.get(cacheKey);
         if (cached) {
           req.tenant = JSON.parse(cached);
+          req.tenantId = req.tenant?.id;
           next();
           return;
         }
@@ -92,8 +99,8 @@ export async function resolveTenant(
       }
 
       if (!tenant || !tenant.is_active) {
-        // Fallback to demo tenant if DB lookup fails in dev
-        if (env.isDev) {
+        // Fallback to demo tenant if DB lookup fails in dev/test
+        if (isDevOrTest) {
           const demoTenant = dataStore.tenants[0];
           req.tenant = {
             id: demoTenant.id,
@@ -101,6 +108,7 @@ export async function resolveTenant(
             primaryColor: demoTenant.primary_color,
             secondaryColor: demoTenant.secondary_color,
           };
+          req.tenantId = demoTenant.id;
           next();
           return;
         }
@@ -122,10 +130,11 @@ export async function resolveTenant(
       }
 
       req.tenant = tenantData;
+      req.tenantId = tenantData.id;
       next();
     } catch (_dbErr) {
-      // DB entirely unavailable — fall back to demo tenant in dev
-      if (env.isDev) {
+      // DB entirely unavailable — fall back to demo tenant in dev/test
+      if (isDevOrTest) {
         const demoTenant = dataStore.tenants[0];
         req.tenant = {
           id: demoTenant.id,
@@ -133,6 +142,7 @@ export async function resolveTenant(
           primaryColor: demoTenant.primary_color,
           secondaryColor: demoTenant.secondary_color,
         };
+        req.tenantId = demoTenant.id;
         next();
         return;
       }
@@ -142,3 +152,4 @@ export async function resolveTenant(
     next(err);
   }
 }
+

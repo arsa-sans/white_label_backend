@@ -1,3 +1,4 @@
+import path from 'path';
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -50,6 +51,10 @@ app.use(express.urlencoded({ extended: true }));
 if (env.isDev) {
   app.use(morgan('dev'));
 }
+
+// Serve static uploads
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 
 // Global Health Check (bypasses tenant resolution)
 app.get('/health', (_req: Request, res: Response) => {

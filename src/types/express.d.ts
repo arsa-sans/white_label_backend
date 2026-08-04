@@ -12,6 +12,8 @@ declare global {
     interface Request {
       user?: JwtPayload;
       tenant?: TenantContext;
+      tenantId?: string;
     }
   }
 }
+

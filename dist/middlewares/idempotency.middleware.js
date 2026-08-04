@@ -21,18 +21,28 @@ function requireIdempotency(req, res, next) {
  * Call this AFTER processing in the controller, before returning response.
  */
 async function cacheIdempotentResponse(idempotencyKey, userId, statusCode, body) {
-    const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
-    await redis_1.redis.setex(cacheKey, IDEMPOTENCY_TTL, JSON.stringify({ statusCode, body, cachedAt: new Date().toISOString() }));
+    try {
+        const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
+        await redis_1.redis.setex(cacheKey, IDEMPOTENCY_TTL, JSON.stringify({ statusCode, body, cachedAt: new Date().toISOString() }));
+    }
+    catch {
+        // Redis unavailable, ignore idempotency caching error
+    }
 }
 /**
  * Check if an idempotency key was already processed.
  * Returns cached response if found, null otherwise.
  */
 async function checkIdempotencyCache(idempotencyKey, userId) {
-    const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
-    const cached = await redis_1.redis.get(cacheKey);
-    if (!cached)
+    try {
+        const cacheKey = `idempotency:${userId}:${idempotencyKey}`;
+        const cached = await redis_1.redis.get(cacheKey);
+        if (!cached)
+            return null;
+        return JSON.parse(cached);
+    }
+    catch {
         return null;
-    return JSON.parse(cached);
+    }
 }
 //# sourceMappingURL=idempotency.middleware.js.map

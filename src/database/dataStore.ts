@@ -23,11 +23,22 @@ export interface DemoSeat {
   event_id: string;
   row: string;
   number: number;
-  category: 'VIP' | 'CAT 1' | 'CAT 2' | 'FESTIVAL';
+  category: string;
   price: number;
+
   status: 'available' | 'locked' | 'sold';
   locked_until?: string;
   locked_by_user_id?: string;
+}
+
+export interface DemoSeatCategory {
+  id: string;
+  event_id: string;
+  name: string;
+  price: number;
+  rows: string[];
+  cols: number;
+  color: string;
 }
 
 export interface DemoEvent {
@@ -43,7 +54,7 @@ export interface DemoEvent {
   end_date: string;
   capacity: number;
   banner_url: string;
-  status: 'published' | 'draft' | 'ended';
+  status: 'published' | 'draft' | 'ended' | 'deleted';
   price_min: number;
   price_max: number;
 }
@@ -196,6 +207,7 @@ class DataStore {
   ];
 
   public seats: DemoSeat[] = [];
+  public seatCategories: DemoSeatCategory[] = [];
   public tickets: DemoTicket[] = [];
   public orders: DemoOrder[] = [];
   public wallets: Map<string, DemoWallet> = new Map();
@@ -203,6 +215,11 @@ class DataStore {
   public gateScanLogs: DemoGateScanLog[] = [];
 
   constructor() {
+    // Seed seat categories for demo events
+    this.seedSeatCategories('evt-001', 1800000, 1200000, 750000, 350000);
+    this.seedSeatCategories('evt-002', 2500000, 1800000, 1000000, 750000);
+    this.seedSeatCategories('evt-003', 600000, 400000, 300000, 250000);
+
     this.generateSeatsForEvent('evt-001');
     this.generateSeatsForEvent('evt-002');
     this.generateSeatsForEvent('evt-003');
@@ -261,13 +278,24 @@ class DataStore {
     }
   }
 
-  private generateSeatsForEvent(eventId: string) {
-    const categories: Array<{ category: 'VIP' | 'CAT 1' | 'CAT 2' | 'FESTIVAL'; price: number; rows: string[]; cols: number }> = [
-      { category: 'VIP', price: 1800000, rows: ['A', 'B'], cols: 10 },
-      { category: 'CAT 1', price: 1200000, rows: ['C', 'D', 'E'], cols: 12 },
-      { category: 'CAT 2', price: 750000, rows: ['F', 'G'], cols: 12 },
-      { category: 'FESTIVAL', price: 350000, rows: ['GA'], cols: 30 },
+  private seedSeatCategories(
+    eventId: string,
+    vipPrice: number,
+    cat1Price: number,
+    cat2Price: number,
+    festivalPrice: number
+  ): void {
+    const cats: DemoSeatCategory[] = [
+      { id: `cat-${eventId}-vip`,  event_id: eventId, name: 'VIP',      price: vipPrice,      rows: ['A', 'B'],           cols: 10, color: '#7C3AED' },
+      { id: `cat-${eventId}-c1`,   event_id: eventId, name: 'CAT 1',    price: cat1Price,     rows: ['C', 'D', 'E'],       cols: 12, color: '#2563EB' },
+      { id: `cat-${eventId}-c2`,   event_id: eventId, name: 'CAT 2',    price: cat2Price,     rows: ['F', 'G'],            cols: 12, color: '#059669' },
+      { id: `cat-${eventId}-fest`, event_id: eventId, name: 'FESTIVAL', price: festivalPrice, rows: ['GA'],               cols: 30, color: '#D97706' },
     ];
+    this.seatCategories.push(...cats);
+  }
+
+  private generateSeatsForEvent(eventId: string) {
+    const categories = this.seatCategories.filter((c) => c.event_id === eventId);
 
     for (const cat of categories) {
       for (const row of cat.rows) {
@@ -279,7 +307,7 @@ class DataStore {
             event_id: eventId,
             row,
             number: col,
-            category: cat.category,
+            category: cat.name,
             price: cat.price,
             status: isSold ? 'sold' : 'available',
           });

@@ -40,14 +40,14 @@ exports.env = {
     // RabbitMQ
     RABBITMQ_URL: optional('RABBITMQ_URL', 'amqp://guest:guest@localhost:5672'),
     // JWT
-    JWT_SECRET: required('JWT_SECRET'),
+    JWT_SECRET: optional('JWT_SECRET', 'dev-jwt-secret-change-in-production'),
     JWT_EXPIRES_IN: optional('JWT_EXPIRES_IN', '15m'),
-    JWT_REFRESH_SECRET: required('JWT_REFRESH_SECRET'),
+    JWT_REFRESH_SECRET: optional('JWT_REFRESH_SECRET', 'dev-refresh-secret-change-in-production'),
     JWT_REFRESH_EXPIRES_IN: optional('JWT_REFRESH_EXPIRES_IN', '7d'),
     // Dynamic QR (AES-256) — platform-level secret, never expose to client
-    QR_AES_KEY: required('QR_AES_KEY'),
+    QR_AES_KEY: optional('QR_AES_KEY', 'dev-qr-aes-key-32-chars-minimum-ok'),
     // Offline Gate HMAC
-    GATE_HMAC_SECRET: required('GATE_HMAC_SECRET'),
+    GATE_HMAC_SECRET: optional('GATE_HMAC_SECRET', 'dev-gate-hmac-secret-ok'),
     // S3 / MinIO
     S3_ENDPOINT: optional('S3_ENDPOINT', 'http://localhost:9000'),
     S3_ACCESS_KEY: optional('S3_ACCESS_KEY', 'minioadmin'),

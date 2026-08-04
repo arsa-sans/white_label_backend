@@ -6,15 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.EXCHANGE = void 0;
 exports.connectRabbitMQ = connectRabbitMQ;
 exports.getChannel = getChannel;
-/**
- * src/config/rabbitmq.ts
- * amqplib connection + channel manager.
- * Provides shared connection and a helper to get/create channels.
- *
- * Exchange topology:
- *   - whitelabel.events (topic) — for all domain events
- *     Routing keys: order.paid, ticket.issued, seat.sold, wallet.topup, refund.processed
- */
 const amqplib_1 = __importDefault(require("amqplib"));
 const env_1 = require("./env");
 let connection = null;

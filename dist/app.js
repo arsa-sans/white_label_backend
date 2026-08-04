@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const path_1 = __importDefault(require("path"));
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
@@ -23,14 +24,35 @@ const app = (0, express_1.default)();
 // Security & Parsing Middlewares
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
-    origin: env_1.env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g., curl, Postman) and localhost dev origins
+        const allowed = [
+            env_1.env.CORS_ORIGIN,
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+        ];
+        if (!origin || allowed.includes(origin)) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error(`CORS: origin ${origin} not allowed`));
+        }
+    },
     credentials: true,
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-idempotency-key',
+        'x-tenant-id',
+    ],
 }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 if (env_1.env.isDev) {
     app.use((0, morgan_1.default)('dev'));
 }
+// Serve static uploads
+app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'uploads')));
 // Global Health Check (bypasses tenant resolution)
 app.get('/health', (_req, res) => {
     res.json(apiResponse_1.ApiResponse.success({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() }, 'White Label Backend API Operational'));
