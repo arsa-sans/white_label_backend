@@ -6,6 +6,7 @@
  * SKILLS.md §7: All queries must be filtered by tenant_id.
  * Caches tenant config in Redis (TTL 5 min) to avoid DB hit per request.
  */
+/// <reference path="../types/express.d.ts" />
 import { Request, Response, NextFunction } from 'express';
 import { sequelize } from '../config/db';
 import { redis } from '../config/redis';

@@ -15,20 +15,6 @@ export interface JwtPayload {
   email: string;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JwtPayload;
-      tenant?: {
-        id: string;
-        name: string;
-        primaryColor: string;
-        secondaryColor: string;
-      };
-    }
-  }
-}
-
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 

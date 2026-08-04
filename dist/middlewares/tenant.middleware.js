@@ -1,6 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveTenant = resolveTenant;
+/**
+ * src/middlewares/tenant.middleware.ts
+ * Resolves tenant from Host header (subdomain or custom domain).
+ * Attaches req.tenant and validates tenant_id from JWT matches resolved tenant.
+ *
+ * SKILLS.md §7: All queries must be filtered by tenant_id.
+ * Caches tenant config in Redis (TTL 5 min) to avoid DB hit per request.
+ */
+require("../types/express");
 const db_1 = require("../config/db");
 const redis_1 = require("../config/redis");
 const apiResponse_1 = require("../utils/apiResponse");
