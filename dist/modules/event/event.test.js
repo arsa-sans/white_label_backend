@@ -27,7 +27,7 @@ describe('Phase 3 — Event Service API', () => {
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
             expect(Array.isArray(res.body.data)).toBe(true);
-            expect(res.body.pagination).toBeDefined();
+            expect(res.body.meta).toBeDefined();
         });
         it('should filter events by category and search query', async () => {
             const res = await (0, supertest_1.default)(app_1.default)
