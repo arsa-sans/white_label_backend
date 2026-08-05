@@ -43,7 +43,9 @@ app.use((0, cors_1.default)({
         'Content-Type',
         'Authorization',
         'x-idempotency-key',
+        'Idempotency-Key',
         'x-tenant-id',
+        'x-webhook-secret',
     ],
 }));
 app.use(express_1.default.json());

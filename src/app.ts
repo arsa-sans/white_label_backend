@@ -41,7 +41,9 @@ app.use(
       'Content-Type',
       'Authorization',
       'x-idempotency-key',
+      'Idempotency-Key',
       'x-tenant-id',
+      'x-webhook-secret',
     ],
   })
 );

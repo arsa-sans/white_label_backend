@@ -40,17 +40,21 @@ const dataStore_1 = require("../database/dataStore");
 const CACHE_TTL = 300; // 5 minutes
 async function resolveTenant(req, _res, next) {
     try {
-        // In dev mode, use the in-memory dataStore fallback directly
-        // (avoids needing MySQL + Redis running for local UI testing)
-        if (env_1.env.isDev) {
-            const demoTenant = dataStore_1.dataStore.tenants[0];
-            if (demoTenant) {
+        const isDevOrTest = env_1.env.isDev || env_1.env.NODE_ENV === 'test';
+        // In dev / test mode, use the in-memory dataStore fallback directly if header/host not matched
+        if (isDevOrTest) {
+            const tenantIdHeader = req.headers['x-tenant-id'];
+            const found = tenantIdHeader
+                ? dataStore_1.dataStore.tenants.find((t) => t.id === tenantIdHeader)
+                : dataStore_1.dataStore.tenants[0];
+            if (found) {
                 req.tenant = {
-                    id: demoTenant.id,
-                    name: demoTenant.name,
-                    primaryColor: demoTenant.primary_color,
-                    secondaryColor: demoTenant.secondary_color,
+                    id: found.id,
+                    name: found.name,
+                    primaryColor: found.primary_color,
+                    secondaryColor: found.secondary_color,
                 };
+                req.tenantId = found.id;
                 next();
                 return;
             }
@@ -70,6 +74,7 @@ async function resolveTenant(req, _res, next) {
                 const cached = await redis.get(cacheKey);
                 if (cached) {
                     req.tenant = JSON.parse(cached);
+                    req.tenantId = req.tenant?.id;
                     next();
                     return;
                 }
@@ -90,8 +95,8 @@ async function resolveTenant(req, _res, next) {
            LIMIT 1`, { replacements: [subdomain, hostname], type: QueryTypes.SELECT });
             }
             if (!tenant || !tenant.is_active) {
-                // Fallback to demo tenant if DB lookup fails in dev
-                if (env_1.env.isDev) {
+                // Fallback to demo tenant if DB lookup fails in dev/test
+                if (isDevOrTest) {
                     const demoTenant = dataStore_1.dataStore.tenants[0];
                     req.tenant = {
                         id: demoTenant.id,
@@ -99,6 +104,7 @@ async function resolveTenant(req, _res, next) {
                         primaryColor: demoTenant.primary_color,
                         secondaryColor: demoTenant.secondary_color,
                     };
+                    req.tenantId = demoTenant.id;
                     next();
                     return;
                 }
@@ -118,11 +124,12 @@ async function resolveTenant(req, _res, next) {
                 // Redis unavailable, ignore cache store error
             }
             req.tenant = tenantData;
+            req.tenantId = tenantData.id;
             next();
         }
         catch (_dbErr) {
-            // DB entirely unavailable — fall back to demo tenant in dev
-            if (env_1.env.isDev) {
+            // DB entirely unavailable — fall back to demo tenant in dev/test
+            if (isDevOrTest) {
                 const demoTenant = dataStore_1.dataStore.tenants[0];
                 req.tenant = {
                     id: demoTenant.id,
@@ -130,6 +137,7 @@ async function resolveTenant(req, _res, next) {
                     primaryColor: demoTenant.primary_color,
                     secondaryColor: demoTenant.secondary_color,
                 };
+                req.tenantId = demoTenant.id;
                 next();
                 return;
             }
