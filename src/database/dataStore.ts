@@ -179,19 +179,43 @@ class DataStore {
    *   visitor@demo.wl      : Visitor@2026!
    */
   public users: DemoUser[] = [
+    // 1. Admin System
     {
       id: 'user-admin-001',
       tenant_id: 'tenant-001',
       name: 'Admin Soundwave',
-      email: 'admin@demo.wl',
+      email: 'admin@whitelabel.id',
       password_hash: 'Admin@2026!',
       role: 'admin',
       approval_status: 'approved',
     },
     {
+      id: 'user-admin-002',
+      tenant_id: 'tenant-001',
+      name: 'Admin Soundwave (Alt)',
+      email: 'admin@demo.wl',
+      password_hash: 'Admin@2026!',
+      role: 'admin',
+      approval_status: 'approved',
+    },
+
+    // 2. Organizer Event
+    {
       id: 'user-organizer-001',
       tenant_id: 'tenant-001',
       name: 'Elena Rostova',
+      email: 'organizer@soundwave.com',
+      password_hash: 'Organizer@2026!',
+      role: 'organizer',
+      approval_status: 'approved',
+      organizer_event_name: 'Neon Genesis Music Festival 2026',
+      organizer_event_date: '2026-09-15',
+      organizer_event_location: 'JIExpo Kemayoran, Jakarta',
+    },
+    {
+      id: 'user-organizer-002',
+      tenant_id: 'tenant-001',
+      name: 'Elena Rostova (Alt)',
       email: 'organizer@demo.wl',
       password_hash: 'Organizer@2026!',
       role: 'organizer',
@@ -200,6 +224,8 @@ class DataStore {
       organizer_event_date: '2026-09-15',
       organizer_event_location: 'JIExpo Kemayoran, Jakarta',
     },
+
+    // 3. Gate Staff
     {
       id: 'user-staff-1',
       tenant_id: 'tenant-001',
@@ -211,14 +237,37 @@ class DataStore {
       invited_by_organizer_id: 'user-organizer-001',
     },
     {
+      id: 'user-staff-2',
+      tenant_id: 'tenant-001',
+      name: 'Rudi Gate Staff (Alt)',
+      email: 'gate@demo.wl',
+      password_hash: 'GateStaff@2026!',
+      role: 'gate_staff',
+      approval_status: 'approved',
+      invited_by_organizer_id: 'user-organizer-001',
+    },
+
+    // 4. Visitor / Penonton
+    {
       id: 'user-visitor-001',
       tenant_id: 'tenant-001',
       name: 'Budi Santoso',
+      email: 'budi@gmail.com',
+      password_hash: 'Visitor@2026!',
+      role: 'visitor',
+      approval_status: 'approved',
+    },
+    {
+      id: 'user-visitor-002',
+      tenant_id: 'tenant-001',
+      name: 'Budi Santoso (Alt)',
       email: 'visitor@demo.wl',
       password_hash: 'Visitor@2026!',
       role: 'visitor',
       approval_status: 'approved',
     },
+
+    // 5. Vendor Booth
     {
       id: 'user-vendor-001',
       tenant_id: 'tenant-001',
@@ -230,6 +279,7 @@ class DataStore {
       invited_by_organizer_id: 'user-organizer-001',
     },
   ];
+
 
   public events: DemoEvent[] = [
     {
