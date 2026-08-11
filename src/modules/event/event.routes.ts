@@ -41,6 +41,9 @@ import {
   upsertSeatCategory,
   deleteSeatCategory,
   regenerateSeats,
+  listEventStaff,
+  addEventStaff,
+  removeEventStaff,
 } from './event.controller';
 
 const router = Router();
@@ -60,12 +63,35 @@ router.get(
 /* ── organizer / admin shared ───────────────────────────── */
 router.get('/me', authenticate, requireRole(['organizer', 'admin']), listMyEvents);
 
+/* ── staff management routes (must come before /:id) ────── */
+router.get(
+  '/:id/staff',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  listEventStaff
+);
+
+router.post(
+  '/:id/staff',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  addEventStaff
+);
+
+router.delete(
+  '/:id/staff/:userId',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  removeEventStaff
+);
+
 router.post(
   '/',
   authenticate,
   requireRole(['organizer', 'admin']),
   createEvent
 );
+
 
 router.put(
   '/:id',

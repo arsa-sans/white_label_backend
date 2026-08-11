@@ -24,6 +24,9 @@ import {
   refundBoothTx,
   autoRefundJob,
   getBoothHistory,
+  getPaymentMethods,
+  addPaymentMethod,
+  deletePaymentMethod,
 } from './cashless.controller';
 
 const router = Router();
@@ -32,6 +35,10 @@ router.get('/wallet', authenticate, getWallet);
 router.post('/wallet/topup', authenticate, topupWallet);
 router.post('/wallet/pair-nfc', authenticate, pairNfc);
 
+router.get('/payment-methods', authenticate, getPaymentMethods);
+router.post('/payment-methods', authenticate, addPaymentMethod);
+router.delete('/payment-methods/:id', authenticate, deletePaymentMethod);
+
 router.post('/booth/debit', authenticate, requireRole(['vendor', 'admin', 'organizer', 'superadmin']), debitBooth);
 router.post('/booth/refund', authenticate, requireRole(['vendor', 'admin', 'organizer', 'superadmin']), refundBoothTx);
 router.get('/booth/history', authenticate, requireRole(['vendor', 'admin', 'organizer', 'superadmin']), getBoothHistory);
@@ -39,3 +46,4 @@ router.get('/booth/history', authenticate, requireRole(['vendor', 'admin', 'orga
 router.post('/wallet/auto-refund', authenticate, requireRole(['admin', 'organizer', 'superadmin']), autoRefundJob);
 
 export default router;
+

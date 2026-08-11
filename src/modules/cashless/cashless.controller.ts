@@ -62,56 +62,80 @@ export async function getWallet(req: Request, res: Response): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /cashless/wallet/topup
-// Body: { amount, payment_method? }
+// GET /cashless/payment-methods
 // Auth: authenticate
 // ─────────────────────────────────────────────────────────────────────────────
-export async function topupWallet(req: Request, res: Response): Promise<void> {
+export async function getPaymentMethods(req: Request, res: Response): Promise<void> {
   const userId = req.user?.userId;
-  const { amount, payment_method = 'QRIS Instant' } = req.body;
-
-  if (!amount || typeof amount !== 'number' || amount <= 0) {
-    res.status(400).json(ApiResponse.error('Valid positive top-up amount is required', 400));
+  if (!userId) {
+    res.status(401).json(ApiResponse.error('Authentication required', 401));
     return;
   }
 
-  const wallet = getOrCreateWallet(userId!);
-  wallet.balance += amount;
+  const methods = dataStore.paymentMethods.filter((pm) => pm.user_id === userId);
+  res.json(ApiResponse.success(methods, 'Payment methods retrieved'));
+}
 
-  const tx: DemoWalletTx = {
-    id: `tx-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
-    wallet_id: wallet.id,
-    amount,
-    type: 'topup',
-    description: `Top-up via ${payment_method}`,
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /cashless/payment-methods
+// Body: { type, account_number, account_name }
+// Auth: authenticate
+// ─────────────────────────────────────────────────────────────────────────────
+export async function addPaymentMethod(req: Request, res: Response): Promise<void> {
+  const userId = req.user?.userId;
+  const { type, account_number, account_name } = req.body;
+
+  if (!type || !account_number || !account_name) {
+    res.status(400).json(ApiResponse.error('type, account_number, dan account_name wajib diisi', 400));
+    return;
+  }
+
+  const validTypes = ['dana', 'gopay', 'ovo', 'bank', 'bank_transfer', 'other'];
+  if (!validTypes.includes(type)) {
+    res.status(400).json(ApiResponse.error(`Tipe e-wallet tidak valid. Pilih dari: ${validTypes.join(', ')}`, 400));
+    return;
+  }
+
+  const isFirst = !dataStore.paymentMethods.some((pm) => pm.user_id === userId);
+  const newMethod = {
+    id: `pm-${Date.now()}-${Math.floor(Math.random() * 899 + 100)}`,
+    user_id: userId!,
+    type: type as any,
+    account_number: account_number.trim(),
+    account_name: account_name.trim(),
+    is_default: isFirst,
     created_at: new Date().toISOString(),
   };
 
-  dataStore.walletTxs.unshift(tx);
+  dataStore.paymentMethods.push(newMethod);
+  res.status(201).json(ApiResponse.success(newMethod, 'Metode pembayaran e-wallet berhasil ditambahkan'));
+}
 
-  // Publish wallet.topup event to RabbitMQ
-  publishEvent(
-    'wallet.topup',
-    {
-      wallet_id: wallet.id,
-      user_id: userId,
-      amount,
-      new_balance: wallet.balance,
-      transaction_id: tx.id,
-    },
-    req.user?.tenantId || 'tenant-001'
-  ).catch((err) => logger.warn('[Cashless] Failed to publish wallet.topup event', err));
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /cashless/payment-methods/:id
+// Auth: authenticate
+// ─────────────────────────────────────────────────────────────────────────────
+export async function deletePaymentMethod(req: Request, res: Response): Promise<void> {
+  const userId = req.user?.userId;
+  const methodId = req.params.id as string;
 
-  res.json(
-    ApiResponse.success(
-      {
-        wallet,
-        transaction: tx,
-      },
-      `Successfully topped up Rp ${amount.toLocaleString('id-ID')}`
-    )
+  const idx = dataStore.paymentMethods.findIndex((pm) => pm.id === methodId && pm.user_id === userId);
+  if (idx === -1) {
+    res.status(404).json(ApiResponse.error('Metode pembayaran tidak ditemukan', 404));
+    return;
+  }
+
+  dataStore.paymentMethods.splice(idx, 1);
+  res.json(ApiResponse.success({ id: methodId }, 'Metode pembayaran berhasil dihapus'));
+}
+
+// Deprecated topup endpoint
+export async function topupWallet(req: Request, res: Response): Promise<void> {
+  res.status(400).json(
+    ApiResponse.error('Fitur wallet top-up untuk Visitor telah dinonaktifkan. Gunakan metode pembayaran e-wallet langsung saat checkout.', 400)
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /cashless/wallet/pair-nfc

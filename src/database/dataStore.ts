@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface DemoTenant {
   id: string;
   name: string;
@@ -9,13 +11,45 @@ export interface DemoTenant {
   secondary_color: string;
 }
 
+export type UserRole = 'visitor' | 'organizer' | 'gate_staff' | 'vendor' | 'admin';
+export type ApprovalStatus = 'approved' | 'pending' | 'rejected';
+
 export interface DemoUser {
   id: string;
   tenant_id: string;
   name: string;
   email: string;
   password_hash: string;
-  role: 'visitor' | 'organizer' | 'gate_staff' | 'vendor' | 'admin';
+  role: UserRole;
+  /** Organizer only: pending/approved/rejected by admin */
+  approval_status: ApprovalStatus;
+  /** Organizer only: data event yang diajukan saat registrasi */
+  organizer_event_name?: string;
+  organizer_event_date?: string;
+  organizer_event_location?: string;
+  /** Gate staff only: organizer yang mengundang */
+  invited_by_organizer_id?: string;
+}
+
+export interface DemoInvitation {
+  id: string;
+  token: string;
+  email: string;
+  name: string;
+  organizer_id: string;
+  event_id?: string;
+  tenant_id: string;
+  expires_at: string;
+  used: boolean;
+}
+
+export interface DemoPaymentMethod {
+  id: string;
+  user_id: string;
+  type: 'dana' | 'gopay' | 'ovo' | 'bank_transfer' | 'other';
+  account_name: string;
+  account_number: string;
+  is_default: boolean;
 }
 
 export interface DemoSeat {
@@ -25,7 +59,6 @@ export interface DemoSeat {
   number: number;
   category: string;
   price: number;
-
   status: 'available' | 'locked' | 'sold';
   locked_until?: string;
   locked_by_user_id?: string;
@@ -57,6 +90,15 @@ export interface DemoEvent {
   status: 'published' | 'draft' | 'ended' | 'deleted';
   price_min: number;
   price_max: number;
+}
+
+/** Relasi Gate Staff ↔ Event (staff di-assign ke event tertentu oleh organizer) */
+export interface DemoEventStaff {
+  id: string;
+  event_id: string;
+  user_id: string;
+  role: 'gate_staff' | 'vendor';
+  assigned_at: string;
 }
 
 export interface DemoTicket {
@@ -113,6 +155,8 @@ export interface DemoGateScanLog {
   staff_name?: string;
 }
 
+// ─── DataStore ────────────────────────────────────────────────────────────────
+
 class DataStore {
   public tenants: DemoTenant[] = [
     {
@@ -120,35 +164,70 @@ class DataStore {
       name: 'Soundwave Festival 2026',
       subdomain: 'soundwave',
       logo_url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop',
-      primary_color: '243 75% 59%', // Indigo accent
-      secondary_color: '199 89% 48%', // Cyan accent
+      primary_color: '243 75% 59%',
+      secondary_color: '199 89% 48%',
     },
   ];
 
+  /**
+   * Fresh seed users — password plain-text (demo in-memory only).
+   *
+   * Default credentials:
+   *   admin@demo.wl        : Admin@2026!
+   *   organizer@demo.wl    : Organizer@2026!  (status: approved)
+   *   gate@demo.wl         : Gate@2026!       (di-invite organizer demo)
+   *   visitor@demo.wl      : Visitor@2026!
+   */
   public users: DemoUser[] = [
     {
-      id: 'user-organizer-1',
+      id: 'user-admin-001',
       tenant_id: 'tenant-001',
-      name: 'Elena Rostova (Organizer)',
-      email: 'organizer@soundwave.com',
-      password_hash: 'password123',
-      role: 'organizer',
+      name: 'Admin Soundwave',
+      email: 'admin@demo.wl',
+      password_hash: 'Admin@2026!',
+      role: 'admin',
+      approval_status: 'approved',
     },
     {
-      id: 'user-visitor-1',
+      id: 'user-organizer-001',
       tenant_id: 'tenant-001',
-      name: 'Budi Santoso (Visitor)',
-      email: 'budi@gmail.com',
-      password_hash: 'password123',
-      role: 'visitor',
+      name: 'Elena Rostova',
+      email: 'organizer@demo.wl',
+      password_hash: 'Organizer@2026!',
+      role: 'organizer',
+      approval_status: 'approved',
+      organizer_event_name: 'Neon Genesis Music Festival 2026',
+      organizer_event_date: '2026-09-15',
+      organizer_event_location: 'JIExpo Kemayoran, Jakarta',
     },
     {
       id: 'user-staff-1',
       tenant_id: 'tenant-001',
       name: 'Rudi Gate Staff',
       email: 'gate@soundwave.com',
-      password_hash: 'password123',
+      password_hash: 'GateStaff@2026!',
       role: 'gate_staff',
+      approval_status: 'approved',
+      invited_by_organizer_id: 'user-organizer-001',
+    },
+    {
+      id: 'user-visitor-001',
+      tenant_id: 'tenant-001',
+      name: 'Budi Santoso',
+      email: 'visitor@demo.wl',
+      password_hash: 'Visitor@2026!',
+      role: 'visitor',
+      approval_status: 'approved',
+    },
+    {
+      id: 'user-vendor-001',
+      tenant_id: 'tenant-001',
+      name: 'Vendor Booth Demo',
+      email: 'vendor@demo.wl',
+      password_hash: 'Vendor@2026!',
+      role: 'vendor',
+      approval_status: 'approved',
+      invited_by_organizer_id: 'user-organizer-001',
     },
   ];
 
@@ -156,7 +235,7 @@ class DataStore {
     {
       id: 'evt-001',
       tenant_id: 'tenant-001',
-      organizer_id: 'user-organizer-1',
+      organizer_id: 'user-organizer-001',
       name: 'Neon Genesis Music Festival 2026',
       category: 'Concert',
       description: 'Pertunjukan musik elektronik terbesar di Asia Tenggara menampilkan DJ kelas dunia & visual panggung 360 derajat.',
@@ -173,7 +252,7 @@ class DataStore {
     {
       id: 'evt-002',
       tenant_id: 'tenant-001',
-      organizer_id: 'user-organizer-1',
+      organizer_id: 'user-organizer-001',
       name: 'Tech Horizon Summit 2026',
       category: 'Conference',
       description: 'Konferensi AI & Cloud Infrastructure dengan pembicara global, exhibition booth, & networking VIP lounge.',
@@ -190,7 +269,7 @@ class DataStore {
     {
       id: 'evt-003',
       tenant_id: 'tenant-001',
-      organizer_id: 'user-organizer-1',
+      organizer_id: 'user-organizer-001',
       name: 'Indie Indie Fest 2026',
       category: 'Concert',
       description: 'Festival musik indie lokal 2 hari penuh dengan lebih dari 30 band pilihan & pasar kreatif UMKM.',
@@ -214,8 +293,14 @@ class DataStore {
   public walletTxs: DemoWalletTx[] = [];
   public gateScanLogs: DemoGateScanLog[] = [];
 
+  // Tabel baru: relasi gate_staff ke event
+  public eventStaff: DemoEventStaff[] = [];
+
+  // Tabel baru: metode pembayaran e-wallet visitor
+  public paymentMethods: DemoPaymentMethod[] = [];
+  public invitations: DemoInvitation[] = [];
+
   constructor() {
-    // Seed seat categories for demo events
     this.seedSeatCategories('evt-001', 1800000, 1200000, 750000, 350000);
     this.seedSeatCategories('evt-002', 2500000, 1800000, 1000000, 750000);
     this.seedSeatCategories('evt-003', 600000, 400000, 300000, 250000);
@@ -224,25 +309,33 @@ class DataStore {
     this.generateSeatsForEvent('evt-002');
     this.generateSeatsForEvent('evt-003');
 
-    // Create initial wallet for demo visitor
-    this.wallets.set('user-visitor-1', {
-      id: 'wlt-001',
-      user_id: 'user-visitor-1',
+    // Assign demo gate staff ke evt-001
+    this.eventStaff.push({
+      id: 'evtstaff-001',
       event_id: 'evt-001',
-      balance: 450000,
-      nfc_uid: 'NFC-994821',
+      user_id: 'user-staff-1',
+      role: 'gate_staff',
+      assigned_at: new Date().toISOString(),
+    });
+    this.eventStaff.push({
+      id: 'evtstaff-002',
+      event_id: 'evt-001',
+      user_id: 'user-vendor-001',
+      role: 'vendor',
+      assigned_at: new Date().toISOString(),
     });
 
-    this.walletTxs.push({
-      id: 'tx-001',
-      wallet_id: 'wlt-001',
-      amount: 450000,
-      type: 'topup',
-      description: 'Initial Top-up via QRIS',
-      created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
+    // Seed demo payment method untuk visitor
+    this.paymentMethods.push({
+      id: 'pm-demo-001',
+      user_id: 'user-visitor-001',
+      type: 'gopay',
+      account_name: 'Budi Santoso',
+      account_number: '08123456789',
+      is_default: true,
     });
 
-    // Seed one pre-purchased ticket for demo user
+    // Seed satu tiket demo untuk visitor
     const preSeat = this.seats.find((s) => s.event_id === 'evt-001' && s.category === 'VIP');
     if (preSeat) {
       preSeat.status = 'sold';
@@ -251,7 +344,7 @@ class DataStore {
         id: 'tkt-demo-101',
         event_id: 'evt-001',
         seat_id: preSeat.id,
-        user_id: 'user-visitor-1',
+        user_id: 'user-visitor-001',
         order_id: 'ord-demo-001',
         qr_seed: seed,
         seat_name: `${preSeat.row}-${preSeat.number}`,
@@ -265,13 +358,13 @@ class DataStore {
       this.orders.push({
         id: 'ord-demo-001',
         tenant_id: 'tenant-001',
-        user_id: 'user-visitor-1',
+        user_id: 'user-visitor-001',
         event_id: 'evt-001',
         amount: preSeat.price,
         status: 'paid',
         idempotency_key: 'idemp-demo-001',
-        payment_gateway: 'Midtrans QRIS',
-        gateway_ref: 'MID-QRIS-99201',
+        payment_gateway: 'Dana',
+        gateway_ref: 'DANA-99201',
         created_at: new Date(Date.now() - 86400000).toISOString(),
         seat_ids: [preSeat.id],
       });
@@ -286,21 +379,19 @@ class DataStore {
     festivalPrice: number
   ): void {
     const cats: DemoSeatCategory[] = [
-      { id: `cat-${eventId}-vip`,  event_id: eventId, name: 'VIP',      price: vipPrice,      rows: ['A', 'B'],           cols: 10, color: '#7C3AED' },
-      { id: `cat-${eventId}-c1`,   event_id: eventId, name: 'CAT 1',    price: cat1Price,     rows: ['C', 'D', 'E'],       cols: 12, color: '#2563EB' },
-      { id: `cat-${eventId}-c2`,   event_id: eventId, name: 'CAT 2',    price: cat2Price,     rows: ['F', 'G'],            cols: 12, color: '#059669' },
-      { id: `cat-${eventId}-fest`, event_id: eventId, name: 'FESTIVAL', price: festivalPrice, rows: ['GA'],               cols: 30, color: '#D97706' },
+      { id: `cat-${eventId}-vip`,  event_id: eventId, name: 'VIP',      price: vipPrice,      rows: ['A', 'B'],     cols: 10, color: '#7C3AED' },
+      { id: `cat-${eventId}-c1`,   event_id: eventId, name: 'CAT 1',    price: cat1Price,     rows: ['C', 'D', 'E'],cols: 12, color: '#2563EB' },
+      { id: `cat-${eventId}-c2`,   event_id: eventId, name: 'CAT 2',    price: cat2Price,     rows: ['F', 'G'],     cols: 12, color: '#059669' },
+      { id: `cat-${eventId}-fest`, event_id: eventId, name: 'FESTIVAL', price: festivalPrice, rows: ['GA'],         cols: 30, color: '#D97706' },
     ];
     this.seatCategories.push(...cats);
   }
 
   private generateSeatsForEvent(eventId: string) {
     const categories = this.seatCategories.filter((c) => c.event_id === eventId);
-
     for (const cat of categories) {
       for (const row of cat.rows) {
         for (let col = 1; col <= cat.cols; col++) {
-          // Pre-mark some seats as sold for realism
           const isSold = Math.random() < 0.15;
           this.seats.push({
             id: `seat-${eventId}-${row}${col}`,

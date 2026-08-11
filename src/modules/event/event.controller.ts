@@ -534,3 +534,105 @@ export async function listMyEvents(req: Request, res: Response): Promise<void> {
 
   res.json(ApiResponse.success(enriched, `${enriched.length} events found`));
 }
+
+/* ─── organizer: staff management per event ──────────────── */
+
+export async function listEventStaff(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const eventStaffs = dataStore.eventStaff.filter((es) => es.event_id === eventId);
+  const staffDetails = eventStaffs.map((es) => {
+    const user = dataStore.users.find((u) => u.id === es.user_id);
+    return {
+      id: es.id,
+      user_id: es.user_id,
+      event_id: es.event_id,
+      name: user?.name || 'Gate Staff',
+      email: user?.email || '',
+      role: user?.role || 'gate_staff',
+      assigned_at: es.assigned_at,
+    };
+  });
+
+  res.json(ApiResponse.success(staffDetails, 'Daftar gate staff event berhasil dimuat'));
+}
+
+export async function addEventStaff(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const actor = req.user as JwtPayload;
+  const { name, email, password } = req.body;
+
+  if (!email || !name || !password) {
+    res.status(400).json(ApiResponse.error('Nama, email, dan password gate staff wajib diisi', 400));
+    return;
+  }
+
+  // Cek apakah user sudah terdaftar
+  let user = dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+
+  if (!user) {
+    // Buat akun gate staff baru
+    user = {
+      id: `user-${crypto.randomUUID().slice(0, 8)}`,
+      tenant_id: actor.tenantId || 'tenant-001',
+      name,
+      email,
+      password_hash: password,
+      role: 'gate_staff',
+      approval_status: 'approved',
+      invited_by_organizer_id: actor.userId,
+    };
+    dataStore.users.push(user);
+  }
+
+  // Cek apakah sudah di-assign ke event ini
+  const existingAssigned = dataStore.eventStaff.find(
+    (es) => es.event_id === eventId && es.user_id === user!.id
+  );
+
+  if (existingAssigned) {
+    res.status(409).json(ApiResponse.error('Gate staff ini sudah ditugaskan pada event ini', 409));
+    return;
+  }
+
+  const newAssigned = {
+    id: `evtstaff-${crypto.randomUUID().slice(0, 8)}`,
+    event_id: eventId,
+    user_id: user.id,
+    role: 'gate_staff' as const,
+    assigned_at: new Date().toISOString(),
+  };
+
+  dataStore.eventStaff.push(newAssigned);
+
+  res.status(201).json(
+    ApiResponse.success(
+      {
+        id: newAssigned.id,
+        user_id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        assigned_at: newAssigned.assigned_at,
+      },
+      'Gate staff berhasil ditambahkan ke event'
+    )
+  );
+}
+
+export async function removeEventStaff(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const userId = req.params.userId as string;
+
+  const idx = dataStore.eventStaff.findIndex(
+    (es) => es.event_id === eventId && (es.user_id === userId || es.id === userId)
+  );
+
+  if (idx === -1) {
+    res.status(404).json(ApiResponse.error('Gate staff tidak ditemukan pada event ini', 404));
+    return;
+  }
+
+  dataStore.eventStaff.splice(idx, 1);
+  res.json(ApiResponse.success({ event_id: eventId, user_id: userId }, 'Gate staff berhasil dihapus dari event'));
+}
+
