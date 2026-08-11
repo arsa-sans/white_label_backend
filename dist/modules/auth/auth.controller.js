@@ -1,93 +1,88 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.login = login;
 exports.register = register;
+exports.inviteStaff = inviteStaff;
+exports.acceptInvitation = acceptInvitation;
 exports.getMe = getMe;
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const env_1 = require("../../config/env");
-const dataStore_1 = require("../../database/dataStore");
 const apiResponse_1 = require("../../utils/apiResponse");
+const auth_service_1 = require("./auth.service");
 async function login(req, res) {
-    const { email, password } = req.body;
-    if (!email || !password) {
-        res.status(400).json(apiResponse_1.ApiResponse.error('Email and password are required', 400));
-        return;
+    try {
+        const { email, password } = req.body;
+        if (!email || !password) {
+            res.status(400).json(apiResponse_1.ApiResponse.error('Email dan password wajib diisi', 400));
+            return;
+        }
+        const result = await auth_service_1.authService.login(email, password);
+        res.json(apiResponse_1.ApiResponse.success(result, 'Login berhasil'));
     }
-    const user = dataStore_1.dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user || user.password_hash !== password) {
-        res.status(401).json(apiResponse_1.ApiResponse.error('Invalid email or password', 401));
-        return;
+    catch (error) {
+        const status = error.statusCode || 401;
+        res.status(status).json(apiResponse_1.ApiResponse.error(error.message || 'Login gagal', status));
     }
-    const token = jsonwebtoken_1.default.sign({
-        userId: user.id,
-        tenantId: user.tenant_id,
-        role: user.role,
-        email: user.email,
-    }, env_1.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json(apiResponse_1.ApiResponse.success({
-        token,
-        user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            tenant_id: user.tenant_id,
-        },
-    }, 'Login successful'));
 }
 async function register(req, res) {
-    const { name, email, password, role } = req.body;
-    if (!name || !email || !password) {
-        res.status(400).json(apiResponse_1.ApiResponse.error('Name, email, and password are required', 400));
-        return;
+    try {
+        const { name, email, password, role = 'visitor', event_name, event_date, event_location } = req.body;
+        if (!name || !email || !password) {
+            res.status(400).json(apiResponse_1.ApiResponse.error('Nama, email, dan password wajib diisi', 400));
+            return;
+        }
+        const tenantId = req.tenantId || req.tenant?.id || 'tenant-001';
+        const result = await auth_service_1.authService.register(name, email, password, role, tenantId, { event_name, event_date, event_location });
+        res.status(201).json(apiResponse_1.ApiResponse.success(result, 'Registrasi berhasil'));
     }
-    const existing = dataStore_1.dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (existing) {
-        res.status(409).json(apiResponse_1.ApiResponse.error('User with this email already exists', 409));
-        return;
+    catch (error) {
+        const status = error.statusCode || 400;
+        res.status(status).json(apiResponse_1.ApiResponse.error(error.message || 'Registrasi gagal', status));
     }
-    const newUser = {
-        id: `user-${Date.now()}`,
-        tenant_id: req.tenant?.id || 'tenant-001',
-        name,
-        email,
-        password_hash: password,
-        role: (role || 'visitor'),
-    };
-    dataStore_1.dataStore.users.push(newUser);
-    const token = jsonwebtoken_1.default.sign({
-        userId: newUser.id,
-        tenantId: newUser.tenant_id,
-        role: newUser.role,
-        email: newUser.email,
-    }, env_1.env.JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json(apiResponse_1.ApiResponse.success({
-        token,
-        user: {
-            id: newUser.id,
-            name: newUser.name,
-            email: newUser.email,
-            role: newUser.role,
-            tenant_id: newUser.tenant_id,
-        },
-    }, 'Registration successful'));
+}
+async function inviteStaff(req, res) {
+    try {
+        const organizerId = req.user?.userId;
+        const tenantId = req.user?.tenantId || 'tenant-001';
+        const { email, name, event_id } = req.body;
+        if (!email || !name) {
+            res.status(400).json(apiResponse_1.ApiResponse.error('Email dan nama staff wajib diisi', 400));
+            return;
+        }
+        const result = await auth_service_1.authService.createStaffInvitation(organizerId, email, name, tenantId, event_id);
+        res.status(201).json(apiResponse_1.ApiResponse.success(result, 'Undangan gate staff berhasil dibuat'));
+    }
+    catch (error) {
+        const status = error.statusCode || 400;
+        res.status(status).json(apiResponse_1.ApiResponse.error(error.message || 'Gagal mengundang staff', status));
+    }
+}
+async function acceptInvitation(req, res) {
+    try {
+        const { token, password } = req.body;
+        if (!token || !password) {
+            res.status(400).json(apiResponse_1.ApiResponse.error('Token undangan dan password wajib diisi', 400));
+            return;
+        }
+        const result = await auth_service_1.authService.acceptInvitation(token, password);
+        res.json(apiResponse_1.ApiResponse.success(result, 'Akun gate staff berhasil diaktifkan'));
+    }
+    catch (error) {
+        const status = error.statusCode || 400;
+        res.status(status).json(apiResponse_1.ApiResponse.error(error.message || 'Gagal menerima undangan', status));
+    }
 }
 async function getMe(req, res) {
-    const userId = req.user?.userId;
-    const user = dataStore_1.dataStore.users.find((u) => u.id === userId);
-    if (!user) {
-        res.status(444).json(apiResponse_1.ApiResponse.error('User not found', 404));
-        return;
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json(apiResponse_1.ApiResponse.error('Unauthorized', 401));
+            return;
+        }
+        const user = await auth_service_1.authService.getMe(userId);
+        res.json(apiResponse_1.ApiResponse.success(user));
     }
-    res.json(apiResponse_1.ApiResponse.success({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        tenant_id: user.tenant_id,
-    }));
+    catch (error) {
+        const status = error.statusCode || 404;
+        res.status(status).json(apiResponse_1.ApiResponse.error(error.message || 'User tidak ditemukan', status));
+    }
 }
 //# sourceMappingURL=auth.controller.js.map

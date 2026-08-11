@@ -6,13 +6,42 @@ export interface DemoTenant {
     primary_color: string;
     secondary_color: string;
 }
+export type UserRole = 'visitor' | 'organizer' | 'gate_staff' | 'vendor' | 'admin';
+export type ApprovalStatus = 'approved' | 'pending' | 'rejected';
 export interface DemoUser {
     id: string;
     tenant_id: string;
     name: string;
     email: string;
     password_hash: string;
-    role: 'visitor' | 'organizer' | 'gate_staff' | 'vendor' | 'admin';
+    role: UserRole;
+    /** Organizer only: pending/approved/rejected by admin */
+    approval_status: ApprovalStatus;
+    /** Organizer only: data event yang diajukan saat registrasi */
+    organizer_event_name?: string;
+    organizer_event_date?: string;
+    organizer_event_location?: string;
+    /** Gate staff only: organizer yang mengundang */
+    invited_by_organizer_id?: string;
+}
+export interface DemoInvitation {
+    id: string;
+    token: string;
+    email: string;
+    name: string;
+    organizer_id: string;
+    event_id?: string;
+    tenant_id: string;
+    expires_at: string;
+    used: boolean;
+}
+export interface DemoPaymentMethod {
+    id: string;
+    user_id: string;
+    type: 'dana' | 'gopay' | 'ovo' | 'bank_transfer' | 'other';
+    account_name: string;
+    account_number: string;
+    is_default: boolean;
 }
 export interface DemoSeat {
     id: string;
@@ -50,6 +79,14 @@ export interface DemoEvent {
     status: 'published' | 'draft' | 'ended' | 'deleted';
     price_min: number;
     price_max: number;
+}
+/** Relasi Gate Staff ↔ Event (staff di-assign ke event tertentu oleh organizer) */
+export interface DemoEventStaff {
+    id: string;
+    event_id: string;
+    user_id: string;
+    role: 'gate_staff' | 'vendor';
+    assigned_at: string;
 }
 export interface DemoTicket {
     id: string;
@@ -102,6 +139,15 @@ export interface DemoGateScanLog {
 }
 declare class DataStore {
     tenants: DemoTenant[];
+    /**
+     * Fresh seed users — password plain-text (demo in-memory only).
+     *
+     * Default credentials:
+     *   admin@demo.wl        : Admin@2026!
+     *   organizer@demo.wl    : Organizer@2026!  (status: approved)
+     *   gate@demo.wl         : Gate@2026!       (di-invite organizer demo)
+     *   visitor@demo.wl      : Visitor@2026!
+     */
     users: DemoUser[];
     events: DemoEvent[];
     seats: DemoSeat[];
@@ -111,6 +157,9 @@ declare class DataStore {
     wallets: Map<string, DemoWallet>;
     walletTxs: DemoWalletTx[];
     gateScanLogs: DemoGateScanLog[];
+    eventStaff: DemoEventStaff[];
+    paymentMethods: DemoPaymentMethod[];
+    invitations: DemoInvitation[];
     constructor();
     private seedSeatCategories;
     private generateSeatsForEvent;

@@ -37,6 +37,10 @@ router.get('/:id/seats', event_controller_1.getEventSeats);
 router.get('/admin/all', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['admin', 'superadmin']), event_controller_1.listAllEvents);
 /* ── organizer / admin shared ───────────────────────────── */
 router.get('/me', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.listMyEvents);
+/* ── staff management routes (must come before /:id) ────── */
+router.get('/:id/staff', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.listEventStaff);
+router.post('/:id/staff', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.addEventStaff);
+router.delete('/:id/staff/:userId', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.removeEventStaff);
 router.post('/', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.createEvent);
 router.put('/:id', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.updateEvent);
 router.delete('/:id', auth_middleware_1.authenticate, (0, rbac_middleware_1.requireRole)(['organizer', 'admin']), event_controller_1.deleteEvent);

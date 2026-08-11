@@ -40,6 +40,9 @@ exports.upsertSeatCategory = upsertSeatCategory;
 exports.deleteSeatCategory = deleteSeatCategory;
 exports.regenerateSeats = regenerateSeats;
 exports.listMyEvents = listMyEvents;
+exports.listEventStaff = listEventStaff;
+exports.addEventStaff = addEventStaff;
+exports.removeEventStaff = removeEventStaff;
 const crypto_1 = __importDefault(require("crypto"));
 const zod_1 = require("zod");
 const uuidv4 = () => crypto_1.default.randomUUID();
@@ -419,5 +422,81 @@ async function listMyEvents(req, res) {
         };
     });
     res.json(apiResponse_1.ApiResponse.success(enriched, `${enriched.length} events found`));
+}
+/* ─── organizer: staff management per event ──────────────── */
+async function listEventStaff(req, res) {
+    const eventId = req.params.id;
+    const eventStaffs = dataStore_1.dataStore.eventStaff.filter((es) => es.event_id === eventId);
+    const staffDetails = eventStaffs.map((es) => {
+        const user = dataStore_1.dataStore.users.find((u) => u.id === es.user_id);
+        return {
+            id: es.id,
+            user_id: es.user_id,
+            event_id: es.event_id,
+            name: user?.name || 'Gate Staff',
+            email: user?.email || '',
+            role: user?.role || 'gate_staff',
+            assigned_at: es.assigned_at,
+        };
+    });
+    res.json(apiResponse_1.ApiResponse.success(staffDetails, 'Daftar gate staff event berhasil dimuat'));
+}
+async function addEventStaff(req, res) {
+    const eventId = req.params.id;
+    const actor = req.user;
+    const { name, email, password } = req.body;
+    if (!email || !name || !password) {
+        res.status(400).json(apiResponse_1.ApiResponse.error('Nama, email, dan password gate staff wajib diisi', 400));
+        return;
+    }
+    // Cek apakah user sudah terdaftar
+    let user = dataStore_1.dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+        // Buat akun gate staff baru
+        user = {
+            id: `user-${crypto_1.default.randomUUID().slice(0, 8)}`,
+            tenant_id: actor.tenantId || 'tenant-001',
+            name,
+            email,
+            password_hash: password,
+            role: 'gate_staff',
+            approval_status: 'approved',
+            invited_by_organizer_id: actor.userId,
+        };
+        dataStore_1.dataStore.users.push(user);
+    }
+    // Cek apakah sudah di-assign ke event ini
+    const existingAssigned = dataStore_1.dataStore.eventStaff.find((es) => es.event_id === eventId && es.user_id === user.id);
+    if (existingAssigned) {
+        res.status(409).json(apiResponse_1.ApiResponse.error('Gate staff ini sudah ditugaskan pada event ini', 409));
+        return;
+    }
+    const newAssigned = {
+        id: `evtstaff-${crypto_1.default.randomUUID().slice(0, 8)}`,
+        event_id: eventId,
+        user_id: user.id,
+        role: 'gate_staff',
+        assigned_at: new Date().toISOString(),
+    };
+    dataStore_1.dataStore.eventStaff.push(newAssigned);
+    res.status(201).json(apiResponse_1.ApiResponse.success({
+        id: newAssigned.id,
+        user_id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        assigned_at: newAssigned.assigned_at,
+    }, 'Gate staff berhasil ditambahkan ke event'));
+}
+async function removeEventStaff(req, res) {
+    const eventId = req.params.id;
+    const userId = req.params.userId;
+    const idx = dataStore_1.dataStore.eventStaff.findIndex((es) => es.event_id === eventId && (es.user_id === userId || es.id === userId));
+    if (idx === -1) {
+        res.status(404).json(apiResponse_1.ApiResponse.error('Gate staff tidak ditemukan pada event ini', 404));
+        return;
+    }
+    dataStore_1.dataStore.eventStaff.splice(idx, 1);
+    res.json(apiResponse_1.ApiResponse.success({ event_id: eventId, user_id: userId }, 'Gate staff berhasil dihapus dari event'));
 }
 //# sourceMappingURL=event.controller.js.map

@@ -14,6 +14,9 @@
  */
 import { Request, Response } from 'express';
 export declare function getWallet(req: Request, res: Response): Promise<void>;
+export declare function getPaymentMethods(req: Request, res: Response): Promise<void>;
+export declare function addPaymentMethod(req: Request, res: Response): Promise<void>;
+export declare function deletePaymentMethod(req: Request, res: Response): Promise<void>;
 export declare function topupWallet(req: Request, res: Response): Promise<void>;
 export declare function pairNfc(req: Request, res: Response): Promise<void>;
 export declare function debitBooth(req: Request, res: Response): Promise<void>;

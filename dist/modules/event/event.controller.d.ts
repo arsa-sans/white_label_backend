@@ -60,4 +60,7 @@ export declare function upsertSeatCategory(req: Request, res: Response): Promise
 export declare function deleteSeatCategory(req: Request, res: Response): Promise<void>;
 export declare function regenerateSeats(req: Request, res: Response): Promise<void>;
 export declare function listMyEvents(req: Request, res: Response): Promise<void>;
+export declare function listEventStaff(req: Request, res: Response): Promise<void>;
+export declare function addEventStaff(req: Request, res: Response): Promise<void>;
+export declare function removeEventStaff(req: Request, res: Response): Promise<void>;
 //# sourceMappingURL=event.controller.d.ts.map

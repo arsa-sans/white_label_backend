@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dataStore = void 0;
 const crypto_1 = __importDefault(require("crypto"));
+// ─── DataStore ────────────────────────────────────────────────────────────────
 class DataStore {
     constructor() {
         this.tenants = [
@@ -13,41 +14,121 @@ class DataStore {
                 name: 'Soundwave Festival 2026',
                 subdomain: 'soundwave',
                 logo_url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop',
-                primary_color: '243 75% 59%', // Indigo accent
-                secondary_color: '199 89% 48%', // Cyan accent
+                primary_color: '243 75% 59%',
+                secondary_color: '199 89% 48%',
             },
         ];
+        /**
+         * Fresh seed users — password plain-text (demo in-memory only).
+         *
+         * Default credentials:
+         *   admin@demo.wl        : Admin@2026!
+         *   organizer@demo.wl    : Organizer@2026!  (status: approved)
+         *   gate@demo.wl         : Gate@2026!       (di-invite organizer demo)
+         *   visitor@demo.wl      : Visitor@2026!
+         */
         this.users = [
+            // 1. Admin System
             {
-                id: 'user-organizer-1',
+                id: 'user-admin-001',
                 tenant_id: 'tenant-001',
-                name: 'Elena Rostova (Organizer)',
+                name: 'Admin Soundwave',
+                email: 'admin@whitelabel.id',
+                password_hash: 'Admin@2026!',
+                role: 'admin',
+                approval_status: 'approved',
+            },
+            {
+                id: 'user-admin-002',
+                tenant_id: 'tenant-001',
+                name: 'Admin Soundwave (Alt)',
+                email: 'admin@demo.wl',
+                password_hash: 'Admin@2026!',
+                role: 'admin',
+                approval_status: 'approved',
+            },
+            // 2. Organizer Event
+            {
+                id: 'user-organizer-001',
+                tenant_id: 'tenant-001',
+                name: 'Elena Rostova',
                 email: 'organizer@soundwave.com',
-                password_hash: 'password123',
+                password_hash: 'Organizer@2026!',
                 role: 'organizer',
+                approval_status: 'approved',
+                organizer_event_name: 'Neon Genesis Music Festival 2026',
+                organizer_event_date: '2026-09-15',
+                organizer_event_location: 'JIExpo Kemayoran, Jakarta',
             },
             {
-                id: 'user-visitor-1',
+                id: 'user-organizer-002',
                 tenant_id: 'tenant-001',
-                name: 'Budi Santoso (Visitor)',
-                email: 'budi@gmail.com',
-                password_hash: 'password123',
-                role: 'visitor',
+                name: 'Elena Rostova (Alt)',
+                email: 'organizer@demo.wl',
+                password_hash: 'Organizer@2026!',
+                role: 'organizer',
+                approval_status: 'approved',
+                organizer_event_name: 'Neon Genesis Music Festival 2026',
+                organizer_event_date: '2026-09-15',
+                organizer_event_location: 'JIExpo Kemayoran, Jakarta',
             },
+            // 3. Gate Staff
             {
                 id: 'user-staff-1',
                 tenant_id: 'tenant-001',
                 name: 'Rudi Gate Staff',
                 email: 'gate@soundwave.com',
-                password_hash: 'password123',
+                password_hash: 'GateStaff@2026!',
                 role: 'gate_staff',
+                approval_status: 'approved',
+                invited_by_organizer_id: 'user-organizer-001',
+            },
+            {
+                id: 'user-staff-2',
+                tenant_id: 'tenant-001',
+                name: 'Rudi Gate Staff (Alt)',
+                email: 'gate@demo.wl',
+                password_hash: 'GateStaff@2026!',
+                role: 'gate_staff',
+                approval_status: 'approved',
+                invited_by_organizer_id: 'user-organizer-001',
+            },
+            // 4. Visitor / Penonton
+            {
+                id: 'user-visitor-001',
+                tenant_id: 'tenant-001',
+                name: 'Budi Santoso',
+                email: 'budi@gmail.com',
+                password_hash: 'Visitor@2026!',
+                role: 'visitor',
+                approval_status: 'approved',
+            },
+            {
+                id: 'user-visitor-002',
+                tenant_id: 'tenant-001',
+                name: 'Budi Santoso (Alt)',
+                email: 'visitor@demo.wl',
+                password_hash: 'Visitor@2026!',
+                role: 'visitor',
+                approval_status: 'approved',
+            },
+            // 5. Vendor Booth
+            {
+                id: 'user-vendor-001',
+                tenant_id: 'tenant-001',
+                name: 'Vendor Booth Demo',
+                email: 'vendor@demo.wl',
+                password_hash: 'Vendor@2026!',
+                role: 'vendor',
+                approval_status: 'approved',
+                invited_by_organizer_id: 'user-organizer-001',
             },
         ];
         this.events = [
             {
                 id: 'evt-001',
                 tenant_id: 'tenant-001',
-                organizer_id: 'user-organizer-1',
+                organizer_id: 'user-organizer-001',
                 name: 'Neon Genesis Music Festival 2026',
                 category: 'Concert',
                 description: 'Pertunjukan musik elektronik terbesar di Asia Tenggara menampilkan DJ kelas dunia & visual panggung 360 derajat.',
@@ -64,7 +145,7 @@ class DataStore {
             {
                 id: 'evt-002',
                 tenant_id: 'tenant-001',
-                organizer_id: 'user-organizer-1',
+                organizer_id: 'user-organizer-001',
                 name: 'Tech Horizon Summit 2026',
                 category: 'Conference',
                 description: 'Konferensi AI & Cloud Infrastructure dengan pembicara global, exhibition booth, & networking VIP lounge.',
@@ -81,7 +162,7 @@ class DataStore {
             {
                 id: 'evt-003',
                 tenant_id: 'tenant-001',
-                organizer_id: 'user-organizer-1',
+                organizer_id: 'user-organizer-001',
                 name: 'Indie Indie Fest 2026',
                 category: 'Concert',
                 description: 'Festival musik indie lokal 2 hari penuh dengan lebih dari 30 band pilihan & pasar kreatif UMKM.',
@@ -103,30 +184,42 @@ class DataStore {
         this.wallets = new Map();
         this.walletTxs = [];
         this.gateScanLogs = [];
-        // Seed seat categories for demo events
+        // Tabel baru: relasi gate_staff ke event
+        this.eventStaff = [];
+        // Tabel baru: metode pembayaran e-wallet visitor
+        this.paymentMethods = [];
+        this.invitations = [];
         this.seedSeatCategories('evt-001', 1800000, 1200000, 750000, 350000);
         this.seedSeatCategories('evt-002', 2500000, 1800000, 1000000, 750000);
         this.seedSeatCategories('evt-003', 600000, 400000, 300000, 250000);
         this.generateSeatsForEvent('evt-001');
         this.generateSeatsForEvent('evt-002');
         this.generateSeatsForEvent('evt-003');
-        // Create initial wallet for demo visitor
-        this.wallets.set('user-visitor-1', {
-            id: 'wlt-001',
-            user_id: 'user-visitor-1',
+        // Assign demo gate staff ke evt-001
+        this.eventStaff.push({
+            id: 'evtstaff-001',
             event_id: 'evt-001',
-            balance: 450000,
-            nfc_uid: 'NFC-994821',
+            user_id: 'user-staff-1',
+            role: 'gate_staff',
+            assigned_at: new Date().toISOString(),
         });
-        this.walletTxs.push({
-            id: 'tx-001',
-            wallet_id: 'wlt-001',
-            amount: 450000,
-            type: 'topup',
-            description: 'Initial Top-up via QRIS',
-            created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
+        this.eventStaff.push({
+            id: 'evtstaff-002',
+            event_id: 'evt-001',
+            user_id: 'user-vendor-001',
+            role: 'vendor',
+            assigned_at: new Date().toISOString(),
         });
-        // Seed one pre-purchased ticket for demo user
+        // Seed demo payment method untuk visitor
+        this.paymentMethods.push({
+            id: 'pm-demo-001',
+            user_id: 'user-visitor-001',
+            type: 'gopay',
+            account_name: 'Budi Santoso',
+            account_number: '08123456789',
+            is_default: true,
+        });
+        // Seed satu tiket demo untuk visitor
         const preSeat = this.seats.find((s) => s.event_id === 'evt-001' && s.category === 'VIP');
         if (preSeat) {
             preSeat.status = 'sold';
@@ -135,7 +228,7 @@ class DataStore {
                 id: 'tkt-demo-101',
                 event_id: 'evt-001',
                 seat_id: preSeat.id,
-                user_id: 'user-visitor-1',
+                user_id: 'user-visitor-001',
                 order_id: 'ord-demo-001',
                 qr_seed: seed,
                 seat_name: `${preSeat.row}-${preSeat.number}`,
@@ -148,13 +241,13 @@ class DataStore {
             this.orders.push({
                 id: 'ord-demo-001',
                 tenant_id: 'tenant-001',
-                user_id: 'user-visitor-1',
+                user_id: 'user-visitor-001',
                 event_id: 'evt-001',
                 amount: preSeat.price,
                 status: 'paid',
                 idempotency_key: 'idemp-demo-001',
-                payment_gateway: 'Midtrans QRIS',
-                gateway_ref: 'MID-QRIS-99201',
+                payment_gateway: 'Dana',
+                gateway_ref: 'DANA-99201',
                 created_at: new Date(Date.now() - 86400000).toISOString(),
                 seat_ids: [preSeat.id],
             });
@@ -174,7 +267,6 @@ class DataStore {
         for (const cat of categories) {
             for (const row of cat.rows) {
                 for (let col = 1; col <= cat.cols; col++) {
-                    // Pre-mark some seats as sold for realism
                     const isSold = Math.random() < 0.15;
                     this.seats.push({
                         id: `seat-${eventId}-${row}${col}`,
