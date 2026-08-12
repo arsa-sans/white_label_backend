@@ -30,9 +30,9 @@ export const env = {
   isProd: optional('NODE_ENV', 'development') === 'production',
 
   // Database
-  DB_HOST: optional('DB_HOST', '127.0.0.1'),
+  DB_HOST: optional('DB_HOST', 'localhost'),
   DB_PORT: optionalNumber('DB_PORT', 3306),
-  DB_NAME: optional('DB_NAME', 'whitelabel_dev'),
+  DB_NAME: optional('DB_NAME', 'db_whitelabel'),
   DB_USER: optional('DB_USER', 'root'),
   DB_PASS: optional('DB_PASS', ''),
 
@@ -69,7 +69,12 @@ export const env = {
   MIDTRANS_CLIENT_KEY: optional('MIDTRANS_CLIENT_KEY', ''),
   MIDTRANS_IS_PRODUCTION: optional('MIDTRANS_IS_PRODUCTION', 'false') === 'true',
 
-  // Notification
+  // Google OAuth
+  GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID', ''),
+  GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET', ''),
+
+  // Notification & Admin Email for Organizer Approval
+  ADMIN_EMAIL: optional('ADMIN_EMAIL', 'arsaprayata72@gmail.com'),
   SENDGRID_API_KEY: optional('SENDGRID_API_KEY', ''),
 
   // CORS

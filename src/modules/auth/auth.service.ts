@@ -74,19 +74,38 @@ export class AuthService {
 
   // ─── Register Organizer ──────────────────────────────────────────────────────
   /**
-   * Organizer register: Wajib menyertakan info event sebagai bukti verifikasi.
-   * Soft validation: approval_status langsung 'approved'.
+   * Organizer register: Wajib verifikasi NIK/KTP, Nama Perusahaan, Nama & Deskripsi Event.
+   * approval_status di-set 'pending' (membutuhkan persetujuan Admin via arsaprayata72@gmail.com).
    */
   async registerOrganizer(
     name: string,
     email: string,
     password: string,
     tenantId: string,
-    eventName: string,
-    eventDate?: string,
-    eventLocation?: string
+    details: {
+      nik: string;
+      company_name: string;
+      event_name: string;
+      event_date?: string;
+      event_location?: string;
+      event_description?: string;
+      portfolio_url?: string;
+      npwp?: string;
+    }
   ): Promise<AuthResult> {
     this.assertEmailNotTaken(email);
+
+    if (!details.nik || details.nik.length < 16) {
+      const err = new Error('NIK / Nomor KTP wajib 16 digit angka');
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    if (!details.company_name) {
+      const err = new Error('Nama Perusahaan / Organisasi Wajib Diisi');
+      (err as any).statusCode = 400;
+      throw err;
+    }
 
     const newUser: DemoUser = {
       id: `user-${crypto.randomUUID().slice(0, 8)}`,
@@ -95,19 +114,54 @@ export class AuthService {
       email,
       password_hash: password,
       role: 'organizer',
-      approval_status: 'approved',
-      organizer_event_name: eventName,
-      organizer_event_date: eventDate || new Date().toISOString(),
-      organizer_event_location: eventLocation || 'Jakarta',
+      approval_status: 'pending', // PENDING ADMIN APPROVAL
+      nik: details.nik,
+      company_name: details.company_name,
+      organizer_event_name: details.event_name,
+      organizer_event_date: details.event_date || new Date().toISOString(),
+      organizer_event_location: details.event_location || 'Jakarta',
+      organizer_event_description: details.event_description,
+      portfolio_url: details.portfolio_url,
+      npwp: details.npwp,
     };
 
     dataStore.users.push(newUser);
+
+    // Kirim notifikasi / Log Email ke Admin untuk Verifikasi
+    console.log(
+      `[ADMIN VERIFICATION EMAIL SENT TO ${env.ADMIN_EMAIL}]` +
+      ` Organizer Baru Mendaftar: ${name} (${email}) | Perusahaan: ${details.company_name} | Event: ${details.event_name}` +
+      ` | NIK: ${details.nik}. Mohon review & approve via Admin Dashboard.`
+    );
+
     const token = this.generateToken(newUser);
 
     return {
       token,
       user: this.sanitizeUser(newUser),
     };
+  }
+
+  // ─── Login with Google ─────────────────────────────────────────────────────
+  async loginWithGoogle(email: string, name: string, googleId?: string): Promise<AuthResult> {
+    let user = this.findByEmail(email);
+
+    if (!user) {
+      // Auto register visitor if user signs in via Google and doesn't exist
+      user = {
+        id: `user-google-${crypto.randomUUID().slice(0, 8)}`,
+        tenant_id: 'tenant-001',
+        name,
+        email,
+        password_hash: `google_oauth_${crypto.randomBytes(12).toString('hex')}`,
+        role: 'visitor',
+        approval_status: 'approved',
+      };
+      dataStore.users.push(user);
+    }
+
+    const token = this.generateToken(user);
+    return { token, user: this.sanitizeUser(user) };
   }
 
   // ─── Generic Register Router ───────────────────────────────────────────────
@@ -117,11 +171,20 @@ export class AuthService {
     password: string,
     role: string = 'visitor',
     tenantId: string = 'tenant-001',
-    extraInfo?: { event_name?: string; event_date?: string; event_location?: string }
+    extraInfo?: {
+      nik?: string;
+      company_name?: string;
+      event_name?: string;
+      event_date?: string;
+      event_location?: string;
+      event_description?: string;
+      portfolio_url?: string;
+      npwp?: string;
+    }
   ): Promise<AuthResult> {
     if (role === 'organizer') {
-      if (!extraInfo?.event_name) {
-        const err = new Error('Registrasi organizer wajib menyertakan Nama Event sebagai verifikasi');
+      if (!extraInfo?.event_name || !extraInfo?.nik || !extraInfo?.company_name) {
+        const err = new Error('Registrasi organizer wajib menyertakan NIK 16-digit, Nama Perusahaan, dan Nama Event');
         (err as any).statusCode = 400;
         throw err;
       }
@@ -130,9 +193,16 @@ export class AuthService {
         email,
         password,
         tenantId,
-        extraInfo.event_name,
-        extraInfo.event_date,
-        extraInfo.event_location
+        {
+          nik: extraInfo.nik,
+          company_name: extraInfo.company_name,
+          event_name: extraInfo.event_name,
+          event_date: extraInfo.event_date,
+          event_location: extraInfo.event_location,
+          event_description: extraInfo.event_description,
+          portfolio_url: extraInfo.portfolio_url,
+          npwp: extraInfo.npwp,
+        }
       );
     } else if (role === 'visitor') {
       return this.registerVisitor(name, email, password, tenantId);

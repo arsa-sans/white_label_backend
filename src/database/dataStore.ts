@@ -23,10 +23,15 @@ export interface DemoUser {
   role: UserRole;
   /** Organizer only: pending/approved/rejected by admin */
   approval_status: ApprovalStatus;
-  /** Organizer only: data event yang diajukan saat registrasi */
+  /** Organizer verification fields */
+  nik?: string;
+  company_name?: string;
   organizer_event_name?: string;
   organizer_event_date?: string;
   organizer_event_location?: string;
+  organizer_event_description?: string;
+  portfolio_url?: string;
+  npwp?: string;
   /** Gate staff only: organizer yang mengundang */
   invited_by_organizer_id?: string;
 }

@@ -33,12 +33,64 @@ export async function register(req: Request, res: Response): Promise<void> {
       password,
       role,
       tenantId,
-      { event_name, event_date, event_location }
+      {
+        nik: req.body.nik,
+        company_name: req.body.company_name,
+        event_name: req.body.event_name,
+        event_date: req.body.event_date,
+        event_location: req.body.event_location,
+        event_description: req.body.event_description,
+        portfolio_url: req.body.portfolio_url,
+        npwp: req.body.npwp,
+      }
     );
     res.status(201).json(ApiResponse.success(result, 'Registrasi berhasil'));
   } catch (error: any) {
     const status = error.statusCode || 400;
     res.status(status).json(ApiResponse.error(error.message || 'Registrasi gagal', status));
+  }
+}
+
+export async function googleLogin(req: Request, res: Response): Promise<void> {
+  try {
+    const { email, name, google_id } = req.body;
+    if (!email || !name) {
+      res.status(400).json(ApiResponse.error('Email dan nama dari akun Google wajib disertakan', 400));
+      return;
+    }
+
+    const result = await authService.loginWithGoogle(email, name, google_id);
+    res.json(ApiResponse.success(result, 'Login dengan akun Google berhasil'));
+  } catch (error: any) {
+    const status = error.statusCode || 400;
+    res.status(status).json(ApiResponse.error(error.message || 'Google login gagal', status));
+  }
+}
+
+export async function listPendingOrganizers(_req: Request, res: Response): Promise<void> {
+  try {
+    const list = await authService.listPendingOrganizers();
+    res.json(ApiResponse.success(list, 'Daftar pengajuan akun organizer berhasil dimuat'));
+  } catch (error: any) {
+    res.status(500).json(ApiResponse.error('Gagal mengambil daftar pending organizer', 500));
+  }
+}
+
+export async function reviewOrganizer(req: Request, res: Response): Promise<void> {
+  try {
+    const { userId } = req.params;
+    const { action } = req.body; // 'approved' | 'rejected'
+
+    if (!['approved', 'rejected'].includes(action)) {
+      res.status(400).json(ApiResponse.error('Action harus approved atau rejected', 400));
+      return;
+    }
+
+    const result = await authService.reviewOrganizer(userId as string, action);
+    res.json(ApiResponse.success(result, `Akun organizer berhasil di-${action}`));
+  } catch (error: any) {
+    const status = error.statusCode || 400;
+    res.status(status).json(ApiResponse.error(error.message || 'Gagal mereview akun organizer', status));
   }
 }
 
