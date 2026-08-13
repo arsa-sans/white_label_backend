@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
 import { ApiResponse } from '../../utils/apiResponse';
 import { authService } from './auth.service';
+import { env } from '../../config/env';
+
+const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 
 export async function login(req: Request, res: Response): Promise<void> {
   try {
@@ -21,7 +24,7 @@ export async function login(req: Request, res: Response): Promise<void> {
 
 export async function register(req: Request, res: Response): Promise<void> {
   try {
-    const { name, email, password, role = 'visitor', event_name, event_date, event_location } = req.body;
+    const { name, email, password, role = 'visitor' } = req.body;
     if (!name || !email || !password) {
       res.status(400).json(ApiResponse.error('Nama, email, dan password wajib diisi', 400));
       return;
@@ -54,27 +57,74 @@ export async function register(req: Request, res: Response): Promise<void> {
 
 export async function googleLogin(req: Request, res: Response): Promise<void> {
   try {
-    let { email, name, google_id, id_token } = req.body;
+    const { id_token, access_token, email: bodyEmail, name: bodyName, google_id: bodyGoogleId } = req.body;
 
-    // Decode Google ID Token if provided from Google Identity Services (GSI)
+    let email: string;
+    let name: string;
+    let google_id: string | undefined;
+
     if (id_token) {
-      const decoded = jwt.decode(id_token) as any;
-      if (decoded && decoded.email) {
-        email = email || decoded.email;
-        name = name || decoded.name || decoded.email.split('@')[0];
-        google_id = google_id || decoded.sub;
+      // ── Path A: Real id_token (authorization_code flow) ───────────────────────
+      // Verify the id_token using google-auth-library
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: id_token,
+          audience: env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        if (!payload || !payload.email) {
+          res.status(401).json(ApiResponse.error('Token Google tidak valid atau kadaluarsa', 401));
+          return;
+        }
+        email = payload.email;
+        name = payload.name || payload.email.split('@')[0];
+        google_id = payload.sub;
+      } catch {
+        res.status(401).json(ApiResponse.error('Verifikasi id_token Google gagal', 401));
+        return;
       }
-    }
-
-    if (!email || !name) {
-      res.status(400).json(ApiResponse.error('Email dan nama dari akun Google wajib disertakan', 400));
+    } else if (access_token) {
+      // ── Path B: access_token from implicit flow (@react-oauth/google) ─────────
+      // Fetch user info from Google's userinfo endpoint
+      try {
+        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+        if (!userInfoRes.ok) {
+          res.status(401).json(ApiResponse.error('access_token Google tidak valid atau kadaluarsa', 401));
+          return;
+        }
+        const userInfo = await userInfoRes.json() as { email?: string; name?: string; sub?: string };
+        if (!userInfo.email) {
+          res.status(401).json(ApiResponse.error('Tidak dapat mengambil data user dari Google', 401));
+          return;
+        }
+        email = userInfo.email;
+        name = userInfo.name || userInfo.email.split('@')[0];
+        google_id = userInfo.sub;
+      } catch {
+        res.status(401).json(ApiResponse.error('Gagal menghubungi Google untuk verifikasi token', 401));
+        return;
+      }
+    } else if (bodyEmail && bodyName) {
+      // ── Path C: Direct email/name (dev/simulation mode only) ─────────────────
+      // Only allowed in development mode
+      if (env.NODE_ENV !== 'development') {
+        res.status(400).json(ApiResponse.error('id_token atau access_token Google wajib disertakan', 400));
+        return;
+      }
+      email = bodyEmail;
+      name = bodyName;
+      google_id = bodyGoogleId;
+    } else {
+      res.status(400).json(ApiResponse.error('id_token atau access_token Google wajib disertakan', 400));
       return;
     }
 
     const result = await authService.loginWithGoogle(email, name, google_id);
     res.json(ApiResponse.success(result, 'Login dengan akun Google berhasil'));
   } catch (error: any) {
-    const status = error.statusCode || 500;
+    const status = error.statusCode || 401;
     res.status(status).json(ApiResponse.error(error.message || 'Google login gagal', status));
   }
 }
