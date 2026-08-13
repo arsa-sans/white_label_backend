@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { ApiResponse } from '../../utils/apiResponse';
 import { authService } from './auth.service';
 
@@ -53,7 +54,18 @@ export async function register(req: Request, res: Response): Promise<void> {
 
 export async function googleLogin(req: Request, res: Response): Promise<void> {
   try {
-    const { email, name, google_id } = req.body;
+    let { email, name, google_id, id_token } = req.body;
+
+    // Decode Google ID Token if provided from Google Identity Services (GSI)
+    if (id_token) {
+      const decoded = jwt.decode(id_token) as any;
+      if (decoded && decoded.email) {
+        email = email || decoded.email;
+        name = name || decoded.name || decoded.email.split('@')[0];
+        google_id = google_id || decoded.sub;
+      }
+    }
+
     if (!email || !name) {
       res.status(400).json(ApiResponse.error('Email dan nama dari akun Google wajib disertakan', 400));
       return;
@@ -62,7 +74,7 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
     const result = await authService.loginWithGoogle(email, name, google_id);
     res.json(ApiResponse.success(result, 'Login dengan akun Google berhasil'));
   } catch (error: any) {
-    const status = error.statusCode || 400;
+    const status = error.statusCode || 500;
     res.status(status).json(ApiResponse.error(error.message || 'Google login gagal', status));
   }
 }

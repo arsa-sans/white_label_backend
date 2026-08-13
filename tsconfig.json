@@ -16,7 +16,9 @@
     "sourceMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "types": ["jest", "node"]
+    "types": ["jest", "node"],
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/database/config.js"],
