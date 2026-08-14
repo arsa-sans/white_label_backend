@@ -1,15 +1,7 @@
 /**
  * src/modules/analytics/analytics.controller.ts
  *
- * FASE 10 — Analytics & Organizer Dashboard
- *
- * Real-time aggregations & Payout settlement flow:
- *   1. getDashboardMetrics → GET /analytics/dashboard (real-time revenue, occupancy %, gate check-in %)
- *   2. getOccupancyReport  → GET /analytics/occupancy (category seat breakdown)
- *   3. getGateThroughput   → GET /analytics/gate-throughput (scans per hour breakdown)
- *   4. requestPayout       → POST /analytics/payouts/request (organizer requests revenue payout)
- *   5. getPayouts          → GET /analytics/payouts (list payout requests)
- *   6. updatePayoutStatus  → PUT /analytics/payouts/:id/status (admin approve/pay: requested → approved → paid)
+ * FASE 10 — Analytics & Organizer Dashboard (Tier Based)
  */
 
 import { Request, Response } from 'express';
@@ -36,7 +28,7 @@ export const payoutStore: DemoPayoutRequest[] = [
   {
     id: 'pay-001',
     tenant_id: 'tenant-001',
-    organizer_id: 'user-organizer-1',
+    organizer_id: 'user-organizer-001',
     event_id: 'evt-001',
     amount: 150000000,
     bank_name: 'BCA',
@@ -50,20 +42,18 @@ export const payoutStore: DemoPayoutRequest[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /analytics/dashboard
-// Query: event_id?
-// Auth: authenticate (organizer, admin, superadmin)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getDashboardMetrics(req: Request, res: Response): Promise<void> {
   const event_id = req.query.event_id as string | undefined;
 
   let events = dataStore.events;
-  let seats = dataStore.seats;
+  let tiers = dataStore.ticketTiers;
   let tickets = dataStore.tickets;
   let orders = dataStore.orders.filter((o) => o.status === 'paid');
 
   if (event_id) {
     events = events.filter((e) => e.id === event_id);
-    seats = seats.filter((s) => s.event_id === event_id);
+    tiers = tiers.filter((t) => t.event_id === event_id);
     tickets = tickets.filter((t) => t.event_id === event_id);
     orders = orders.filter((o) => o.event_id === event_id);
   }
@@ -73,26 +63,19 @@ export async function getDashboardMetrics(req: Request, res: Response): Promise<
   const totalTicketsSold = tickets.length;
   const totalScanned = tickets.filter((t) => t.status === 'used').length;
 
-  const totalSeatsCount = seats.length;
-  const soldSeatsCount = seats.filter((s) => s.status === 'sold').length;
+  const totalQuotaCount = tiers.reduce((sum, t) => sum + t.quota, 0);
+  const totalSoldQuota = tiers.reduce((sum, t) => sum + t.sold, 0);
 
-  const occupancyRate = totalSeatsCount > 0 ? Number(((soldSeatsCount / totalSeatsCount) * 100).toFixed(1)) : 0;
+  const occupancyRate = totalQuotaCount > 0 ? Number(((totalSoldQuota / totalQuotaCount) * 100).toFixed(1)) : 0;
   const checkinRate = totalTicketsSold > 0 ? Number(((totalScanned / totalTicketsSold) * 100).toFixed(1)) : 0;
 
-  // Category breakdown
-  const categoryMap: Record<string, { category: string; total: number; sold: number; revenue: number }> = {};
-  for (const s of seats) {
-    if (!categoryMap[s.category]) {
-      categoryMap[s.category] = { category: s.category, total: 0, sold: 0, revenue: 0 };
-    }
-    categoryMap[s.category].total++;
-    if (s.status === 'sold') {
-      categoryMap[s.category].sold++;
-      categoryMap[s.category].revenue += s.price;
-    }
-  }
-
-  const categoryBreakdown = Object.values(categoryMap);
+  // Category/Tier breakdown
+  const categoryBreakdown = tiers.map((t) => ({
+    category: t.name,
+    total: t.quota,
+    sold: t.sold,
+    revenue: t.sold * t.price,
+  }));
 
   res.json(
     ApiResponse.success(
@@ -114,45 +97,39 @@ export async function getDashboardMetrics(req: Request, res: Response): Promise<
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /analytics/occupancy
-// Query: event_id?
-// Auth: authenticate
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getOccupancyReport(req: Request, res: Response): Promise<void> {
   const event_id = (req.query.event_id as string) || 'evt-001';
-  const seats = dataStore.seats.filter((s) => s.event_id === event_id);
+  const tiers = dataStore.ticketTiers.filter((t) => t.event_id === event_id);
 
-  const totalSeats = seats.length;
-  const soldSeats = seats.filter((s) => s.status === 'sold').length;
-  const lockedSeats = seats.filter((s) => s.status === 'locked').length;
-  const availableSeats = seats.filter((s) => s.status === 'available').length;
+  const totalQuota = tiers.reduce((sum, t) => sum + t.quota, 0);
+  const totalSold = tiers.reduce((sum, t) => sum + t.sold, 0);
+  const availableQuota = totalQuota - totalSold;
 
   res.json(
     ApiResponse.success(
       {
         event_id,
-        total_seats: totalSeats,
-        sold_seats: soldSeats,
-        locked_seats: lockedSeats,
-        available_seats: availableSeats,
-        occupancy_percentage: totalSeats > 0 ? Number(((soldSeats / totalSeats) * 100).toFixed(1)) : 0,
+        total_seats: totalQuota,
+        sold_seats: totalSold,
+        locked_seats: 0,
+        available_seats: availableQuota,
+        occupancy_percentage: totalQuota > 0 ? Number(((totalSold / totalQuota) * 100).toFixed(1)) : 0,
       },
-      'Event seat occupancy report retrieved'
+      'Event seat/quota occupancy report retrieved'
     )
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /analytics/gate-throughput
-// Query: event_id?
-// Auth: authenticate
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getGateThroughput(req: Request, res: Response): Promise<void> {
   const logs = dataStore.gateScanLogs;
 
-  // Hourly scan count aggregation
   const hourlyMap: Record<string, number> = {};
   for (const l of logs) {
-    const hourKey = l.scanned_at.substring(0, 13) + ':00'; // YYYY-MM-DDTHH:00
+    const hourKey = l.scanned_at.substring(0, 13) + ':00';
     hourlyMap[hourKey] = (hourlyMap[hourKey] || 0) + 1;
   }
 
@@ -171,8 +148,6 @@ export async function getGateThroughput(req: Request, res: Response): Promise<vo
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /analytics/payouts/request
-// Body: { event_id, amount, bank_name, account_number, account_holder }
-// Auth: requireRole(['organizer', 'admin', 'superadmin'])
 // ─────────────────────────────────────────────────────────────────────────────
 export async function requestPayout(req: Request, res: Response): Promise<void> {
   const { event_id, amount, bank_name, account_number, account_holder } = req.body;
@@ -185,7 +160,6 @@ export async function requestPayout(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  // Calculate available organizer balance for this event
   const eventOrders = dataStore.orders.filter((o) => o.event_id === event_id && o.status === 'paid');
   const totalRevenue = eventOrders.reduce((sum, o) => sum + o.amount, 0);
 
@@ -232,7 +206,6 @@ export async function requestPayout(req: Request, res: Response): Promise<void> 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /analytics/payouts
-// Auth: authenticate (organizer, admin, superadmin)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getPayouts(req: Request, res: Response): Promise<void> {
   const userId = req.user?.userId;
@@ -248,9 +221,6 @@ export async function getPayouts(req: Request, res: Response): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /analytics/payouts/:id/status
-// Body: { status: 'approved' | 'paid' | 'rejected' }
-// Auth: requireRole(['admin', 'superadmin'])
-// Flow: requested → approved → paid
 // ─────────────────────────────────────────────────────────────────────────────
 export async function updatePayoutStatus(req: Request, res: Response): Promise<void> {
   const { id } = req.params;

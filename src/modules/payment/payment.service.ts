@@ -1,38 +1,34 @@
 /**
  * src/modules/payment/payment.service.ts
  *
- * FASE 5 — Payment Service: Business Logic Layer
+ * Phase 5 — Payment Service: Business Logic Layer (Tier Based)
  *
- * Memisahkan logika bisnis dari HTTP layer (controller).
- * Controller hanya menangani request/response parsing, lalu mendelegasikan ke sini.
- *
- * Sesuai SKILLS.md § Skill 2 (Idempotency Key):
- *   - createOrder     → idempotency via idempotency_key (UNIQUE kolom orders)
- *   - issueTickets    → idempotent per-seat (skip kalau sudah ada tiket untuk order+seat)
- *   - webhook handler → idempotent via gateway_ref (transaction_id dari gateway)
- *
- * Payment gateway modes:
- *   - MIDTRANS_SERVER_KEY tersedia → Midtrans Snap API (sandbox)
- *   - tidak ada key → simulasi lokal (dev mode, tidak butuh akun gateway)
+ * Midtrans Snap API integration + dev simulation fallback.
+ * Idempotency via idempotency_key header (UNIQUE index).
  */
 
 import crypto from 'crypto';
 import https from 'https';
-import { dataStore, DemoOrder, DemoTicket } from '../../database/dataStore';
+import { dataStore, DemoOrder, DemoTicket, DemoOrderItem } from '../../database/dataStore';
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
-import { releaseLock, redis } from '../../config/redis';
 import { publishEvent } from '../../queue/publisher';
 import { io } from '../../server';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIDTRANS_SANDBOX_SNAP_BASE = 'https://app.sandbox.midtrans.com/snap/v1';
-const ORDER_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 jam
+const ORDER_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+export interface CreateOrderItemInput {
+  tier_id: string;
+  quantity: number;
+}
+
 export interface CreateOrderInput {
   event_id: string;
-  seat_ids: string[];
+  items?: CreateOrderItemInput[];
+  seat_ids?: string[]; // legacy fallback
   payment_gateway?: string;
   customer_name?: string;
   customer_email?: string;
@@ -58,20 +54,9 @@ export interface WebhookProcessResult {
   order_id: string;
   new_status: string;
   tickets_issued: number;
-  skipped: boolean; // true jika sudah diproses (idempotent)
+  skipped: boolean;
 }
 
-// ─── Helper: Seat lock key ────────────────────────────────────────────────────
-function seatLockKey(seatId: string): string {
-  return `seat:lock:${seatId}`;
-}
-
-// ─── Helper: Redis readiness ──────────────────────────────────────────────────
-function isRedisReady(): boolean {
-  return redis.status === 'ready';
-}
-
-// ─── Helper: Midtrans configured? ────────────────────────────────────────────
 export function isMidtransConfigured(): boolean {
   return !!(env.MIDTRANS_SERVER_KEY && env.MIDTRANS_SERVER_KEY.trim() !== '');
 }
@@ -154,9 +139,7 @@ export async function createMidtransSnapToken(params: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Midtrans webhook signature verification
-// SKILLS.md § Skill 2: wajib verifikasi sebelum proses apapun
 // Formula: SHA-512(order_id + status_code + gross_amount + server_key)
-// Docs: https://docs.midtrans.com/docs/core-api-payment-notification#verifying-notification-authenticity
 // ─────────────────────────────────────────────────────────────────────────────
 export function verifyMidtransSignature(params: {
   orderId: string;
@@ -173,47 +156,71 @@ export function verifyMidtransSignature(params: {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Simulation payment URL (dev fallback when no Midtrans key)
-// ─────────────────────────────────────────────────────────────────────────────
 function buildSimulationUrl(orderId: string, amount: number): string {
   const base = env.CORS_ORIGIN || 'http://localhost:3000';
   return `${base}/checkout/simulate?order_id=${orderId}&amount=${amount}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// createOrder — Business logic (SKILLS.md § Skill 2)
-// Idempotency: caller should check idempotency cache BEFORE calling this.
+// createOrderService — Business logic (Ticket Tier Based)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function createOrderService(input: CreateOrderInput): Promise<CreateOrderResult> {
-  const { event_id, seat_ids, payment_gateway, customer_name, customer_email,
+  const { event_id, items, seat_ids, payment_gateway, customer_name, customer_email,
           idempotency_key, user_id, tenant_id } = input;
 
-  // ── Validate seats & calculate total ────────────────────────────────────
+  const event = dataStore.events.find((e) => e.id === event_id);
+  if (!event) {
+    throw Object.assign(new Error(`Event ${event_id} not found`), { statusCode: 404 });
+  }
+
+  // Parse items
+  let orderItems: DemoOrderItem[] = [];
+  if (items && items.length > 0) {
+    for (const item of items) {
+      const tier = dataStore.ticketTiers.find((t) => t.id === item.tier_id && t.event_id === event_id);
+      if (!tier) {
+        throw Object.assign(new Error(`Ticket Tier ${item.tier_id} not found`), { statusCode: 404 });
+      }
+      const availableQuota = tier.quota - tier.sold;
+      if (item.quantity > availableQuota) {
+        throw Object.assign(
+          new Error(`Kuota tiket '${tier.name}' tidak mencukupi (Sisa: ${availableQuota}, Diminta: ${item.quantity})`),
+          { statusCode: 409 }
+        );
+      }
+      orderItems.push({
+        tier_id: tier.id,
+        tier_name: tier.name,
+        quantity: item.quantity,
+        unit_price: tier.price,
+      });
+    }
+  } else if (seat_ids && seat_ids.length > 0) {
+    // Legacy fallback: convert seat_ids to default VIP tier
+    const defaultTier = dataStore.ticketTiers.find((t) => t.event_id === event_id) || dataStore.ticketTiers[0];
+    orderItems.push({
+      tier_id: defaultTier.id,
+      tier_name: defaultTier.name,
+      quantity: seat_ids.length,
+      unit_price: defaultTier.price,
+    });
+  } else {
+    throw Object.assign(new Error('Order items (tier_id & quantity) are required'), { statusCode: 400 });
+  }
+
   let totalAmount = 0;
   const itemDetails: Array<{ id: string; price: number; quantity: number; name: string }> = [];
 
-  for (const seatId of seat_ids) {
-    const seat = dataStore.seats.find((s) => s.id === seatId && s.event_id === event_id);
-    if (!seat) {
-      throw Object.assign(new Error(`Seat ${seatId} not found in event ${event_id}`), { statusCode: 404 });
-    }
-    if (seat.status === 'sold') {
-      throw Object.assign(
-        new Error(`Seat ${seat.row}-${seat.number} (${seat.category}) is already sold`),
-        { statusCode: 409 }
-      );
-    }
-    totalAmount += seat.price;
+  for (const item of orderItems) {
+    totalAmount += item.quantity * item.unit_price;
     itemDetails.push({
-      id: seat.id,
-      price: seat.price,
-      quantity: 1,
-      name: `${seat.category} - Seat ${seat.row}-${seat.number}`,
+      id: item.tier_id,
+      price: item.unit_price,
+      quantity: item.quantity,
+      name: item.tier_name,
     });
   }
 
-  const event = dataStore.events.find((e) => e.id === event_id);
   const orderId = `ord-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
   const newOrder: DemoOrder = {
@@ -222,12 +229,12 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     user_id,
     event_id,
     amount: totalAmount,
+    items: orderItems,
     status: 'pending',
     idempotency_key,
     payment_gateway: payment_gateway || 'Midtrans',
     gateway_ref: '',
     created_at: new Date().toISOString(),
-    seat_ids,
   };
 
   dataStore.orders.push(newOrder);
@@ -258,7 +265,7 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     }
   }
 
-  // Dev/fallback simulation
+  // Dev/fallback simulation if Snap wasn't generated
   if (!snapToken) {
     snapToken = `sim-${Buffer.from(orderId).toString('base64url')}`;
     snapRedirectUrl = buildSimulationUrl(orderId, totalAmount);
@@ -274,16 +281,14 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     currency: 'IDR',
     gateway: gatewayLabel!,
     expires_at: new Date(Date.now() + ORDER_EXPIRY_MS).toISOString(),
-    event_name: event?.name || event_id,
+    event_name: event.name,
     supported_methods: ['credit_card', 'gopay', 'shopeepay', 'qris', 'bank_transfer'],
     ...(gatewayError && { gateway_warning: `Midtrans unavailable: ${gatewayError}` }),
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// issueTicketsForOrder — idempotent ticket issuance (SKILLS.md § Skill 2)
-// Used by both processPaymentService (simulation) and processWebhookService (real gateway).
-// Skips seats that already have a ticket for this order (re-entrant safe).
+// issueTicketsForOrder — idempotent ticket issuance per tier
 // ─────────────────────────────────────────────────────────────────────────────
 export async function issueTicketsForOrder(
   orderId: string,
@@ -295,78 +300,54 @@ export async function issueTicketsForOrder(
 
   const issuedTickets: DemoTicket[] = [];
 
-  for (const seatId of order.seat_ids) {
-    // Idempotent: skip if ticket already issued for this seat+order
-    const existing = dataStore.tickets.find(
-      (t) => t.seat_id === seatId && t.order_id === orderId
-    );
-    if (existing) {
-      issuedTickets.push(existing);
-      continue;
+  for (const item of order.items) {
+    const tier = dataStore.ticketTiers.find((t) => t.id === item.tier_id);
+    if (tier) {
+      tier.sold += item.quantity;
     }
 
-    const seat = dataStore.seats.find((s) => s.id === seatId);
-    if (!seat) continue;
+    for (let i = 0; i < item.quantity; i++) {
+      const qrSeed = crypto.randomBytes(16).toString('hex');
+      const ticketId = `tkt-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`;
 
-    // FASE 4 pattern: Release Redis lock → convert lock → sold
-    const lockKey = seatLockKey(seatId);
-    if (isRedisReady()) {
-      if (seat.locked_by_user_id === userId) {
-        await releaseLock(lockKey, userId).catch(() => {});
-      } else {
-        await redis.del(lockKey).catch(() => {}); // admin force-release
-      }
-    }
-
-    // Update seat status
-    seat.status = 'sold';
-    seat.locked_until = undefined;
-    seat.locked_by_user_id = undefined;
-
-    // Generate qr_seed per ticket (SKILLS.md § Skill 3)
-    const qrSeed = crypto.randomBytes(16).toString('hex');
-    const ticketId = `tkt-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`;
-
-    const ticket: DemoTicket = {
-      id: ticketId,
-      event_id: order.event_id,
-      seat_id: seat.id,
-      user_id: userId,
-      order_id: orderId,
-      qr_seed: qrSeed,
-      seat_name: `${seat.row}-${seat.number}`,
-      category: seat.category,
-      price: seat.price,
-      status: 'valid',
-      issued_at: new Date().toISOString(),
-    };
-
-    dataStore.tickets.push(ticket);
-    issuedTickets.push(ticket);
-
-    // Publish ticket.issued per ticket to RabbitMQ → notification consumer
-    publishEvent(
-      'ticket.issued',
-      {
-        ticket_id: ticket.id,
-        order_id: orderId,
+      const ticket: DemoTicket = {
+        id: ticketId,
         event_id: order.event_id,
-        seat_id: seat.id,
-        seat_name: ticket.seat_name,
-        category: ticket.category,
+        tier_id: item.tier_id,
+        tier_name: item.tier_name,
         user_id: userId,
+        order_id: orderId,
         qr_seed: qrSeed,
-        issued_at: ticket.issued_at,
-      },
-      tenantId
-    ).catch((err) => logger.warn('[PaymentService] Failed to publish ticket.issued', err));
+        price: item.unit_price,
+        status: 'valid',
+        issued_at: new Date().toISOString(),
+      };
+
+      dataStore.tickets.push(ticket);
+      issuedTickets.push(ticket);
+
+      publishEvent(
+        'ticket.issued',
+        {
+          ticket_id: ticket.id,
+          order_id: orderId,
+          event_id: order.event_id,
+          tier_id: item.tier_id,
+          tier_name: item.tier_name,
+          user_id: userId,
+          qr_seed: qrSeed,
+          issued_at: ticket.issued_at,
+        },
+        tenantId
+      ).catch((err) => logger.warn('[PaymentService] Failed to publish ticket.issued', err));
+    }
   }
 
   return issuedTickets;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// processPaymentService — Simulation / dev mode payment processing
+// processPaymentService — Simulation payment processing
 // ─────────────────────────────────────────────────────────────────────────────
 export async function processPaymentService(
   orderId: string,
@@ -379,7 +360,6 @@ export async function processPaymentService(
     throw Object.assign(new Error('Order not found'), { statusCode: 404 });
   }
 
-  // Idempotent: already paid
   if (order.status === 'paid') {
     const existingTickets = dataStore.tickets.filter((t) => t.order_id === orderId);
     return { order, tickets: existingTickets };
@@ -396,16 +376,13 @@ export async function processPaymentService(
     throw Object.assign(new Error('You are not authorized to pay this order'), { statusCode: 403 });
   }
 
-  // Mark as paid
   order.status = 'paid';
   if (!order.gateway_ref || order.gateway_ref.startsWith('SIM-')) {
     order.gateway_ref = `SIM-PAID-${Date.now()}`;
   }
 
-  // Issue tickets
   const issuedTickets = await issueTicketsForOrder(orderId, userId, tenantId);
 
-  // Publish order.paid to RabbitMQ → notification + analytics consumers
   publishEvent(
     'order.paid',
     {
@@ -413,24 +390,16 @@ export async function processPaymentService(
       event_id: order.event_id,
       user_id: userId,
       amount: order.amount,
-      seat_ids: order.seat_ids,
       ticket_count: issuedTickets.length,
       payment_gateway: 'simulation',
     },
     tenantId
   ).catch((err) => logger.warn('[PaymentService] Failed to publish order.paid', err));
 
-  // Broadcast seat sold to seat map via Socket.IO
   io.to(`event:${order.event_id}`).emit('order_paid', {
     order_id: order.id,
     event_id: order.event_id,
-    seat_ids: order.seat_ids,
   });
-
-  logger.info(
-    `[PaymentService] Simulation payment processed for order ${orderId} — ` +
-    `${issuedTickets.length} ticket(s) issued`
-  );
 
   return { order, tickets: issuedTickets };
 }
@@ -464,12 +433,11 @@ export function mapMidtransStatus(
   if (transactionStatus === 'expire') {
     return { newStatus: 'expired', shouldIssueTickets: false };
   }
-  // Unknown status — do not change
   return { newStatus: 'pending', shouldIssueTickets: false };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// processWebhookService — Midtrans webhook handler (SKILLS.md § Skill 2)
+// processWebhookService — Midtrans webhook handler
 // ─────────────────────────────────────────────────────────────────────────────
 export interface MidtransWebhookPayload {
   order_id: string;
@@ -496,7 +464,6 @@ export async function processWebhookService(
     payment_type,
   } = payload;
 
-  // ── 1. Signature verification (SKILLS.md § Skill 2) ─────────────────────
   if (isMidtransConfigured()) {
     const valid = verifyMidtransSignature({
       orderId: order_id,
@@ -508,45 +475,30 @@ export async function processWebhookService(
       logger.warn(`[PaymentService/Webhook] Invalid signature for order ${order_id}`);
       throw Object.assign(new Error('Invalid webhook signature'), { statusCode: 401 });
     }
-  } else {
-    logger.debug('[PaymentService/Webhook] Dev mode — skipping Midtrans signature check');
   }
 
-  // ── 2. Locate order ──────────────────────────────────────────────────────
   const order = dataStore.orders.find((o) => o.id === order_id);
   if (!order) {
-    logger.warn(`[PaymentService/Webhook] Order not found: ${order_id}`);
-    // Return 200 to prevent Midtrans retry loop on unknown order
     return { order_id, new_status: 'not_found', tickets_issued: 0, skipped: true };
   }
 
-  // ── 3. Idempotency via gateway_ref (SKILLS.md § Skill 2) ────────────────
   if (transaction_id && order.gateway_ref === transaction_id && order.status === 'paid') {
-    logger.info(`[PaymentService/Webhook] Duplicate webhook for txn ${transaction_id} — ignored`);
     return { order_id, new_status: order.status, tickets_issued: 0, skipped: true };
   }
 
-  // ── 4. Map Midtrans status → internal status ─────────────────────────────
   const { newStatus, shouldIssueTickets } = mapMidtransStatus(transaction_status, fraud_status);
-
-  logger.info(
-    `[PaymentService/Webhook] Order ${order_id}: ${order.status} → ${newStatus} ` +
-    `(txn_status=${transaction_status}, fraud=${fraud_status || 'n/a'}, method=${payment_type || 'n/a'})`
-  );
 
   order.status = newStatus;
   if (transaction_id) {
     order.gateway_ref = transaction_id;
   }
 
-  // ── 5. Issue tickets if paid ─────────────────────────────────────────────
   let ticketsIssued = 0;
   if (shouldIssueTickets) {
     const tenantId = order.tenant_id || 'tenant-001';
     const issuedTickets = await issueTicketsForOrder(order_id, order.user_id, tenantId);
     ticketsIssued = issuedTickets.length;
 
-    // Publish order.paid → notification + analytics consumers
     publishEvent(
       'order.paid',
       {
@@ -554,7 +506,6 @@ export async function processWebhookService(
         event_id: order.event_id,
         user_id: order.user_id,
         amount: order.amount,
-        seat_ids: order.seat_ids,
         ticket_count: ticketsIssued,
         payment_gateway: payment_type || 'midtrans',
         transaction_id,
@@ -562,14 +513,10 @@ export async function processWebhookService(
       tenantId
     ).catch((err) => logger.error('[PaymentService/Webhook] Failed to publish order.paid', err));
 
-    // Broadcast seat sold to seat map
     io.to(`event:${order.event_id}`).emit('order_paid', {
       order_id: order.id,
       event_id: order.event_id,
-      seat_ids: order.seat_ids,
     });
-
-    logger.info(`[PaymentService/Webhook] Issued ${ticketsIssued} ticket(s) for order ${order_id}`);
   }
 
   return { order_id, new_status: newStatus, tickets_issued: ticketsIssued, skipped: false };

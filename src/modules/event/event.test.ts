@@ -1,10 +1,9 @@
 import request from 'supertest';
 import app from '../../app';
-import { dataStore } from '../../database/dataStore';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
 
-function generateTestToken(role = 'organizer', userId = 'user-organizer-1', tenantId = 'tenant-001') {
+function generateTestToken(role = 'organizer', userId = 'user-organizer-001', tenantId = 'tenant-001') {
   return jwt.sign(
     {
       userId,
@@ -17,7 +16,7 @@ function generateTestToken(role = 'organizer', userId = 'user-organizer-1', tena
   );
 }
 
-describe('Phase 3 — Event Service API', () => {
+describe('Phase 3 — Event Service API (Tier Based)', () => {
   const organizerToken = generateTestToken('organizer');
   const visitorToken = generateTestToken('visitor');
   let createdEventId: string;
@@ -33,7 +32,6 @@ describe('Phase 3 — Event Service API', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta).toBeDefined();
     });
-
 
     it('should filter events by category and search query', async () => {
       const res = await request(app)
@@ -54,17 +52,17 @@ describe('Phase 3 — Event Service API', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe('evt-001');
       expect(res.body.data.stats).toBeDefined();
-      expect(res.body.data.stats.total_seats).toBeGreaterThan(0);
+      expect(res.body.data.stats.total_quota).toBeGreaterThan(0);
     });
 
-    it('should return seat map for event', async () => {
+    it('should return ticket tiers for event', async () => {
       const res = await request(app)
-        .get('/api/v1/events/evt-001/seats')
+        .get('/api/v1/events/evt-001/tiers')
         .set('x-tenant-id', 'tenant-001');
 
       expect(res.status).toBe(200);
-      expect(res.body.data.seats).toBeDefined();
-      expect(Array.isArray(res.body.data.seats)).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThan(0);
     });
   });
 
@@ -142,10 +140,10 @@ describe('Phase 3 — Event Service API', () => {
     });
   });
 
-  describe('Seat Categories & Rebuild Layout', () => {
-    it('should list seat categories for an event', async () => {
+  describe('Ticket Tiers Management', () => {
+    it('should list ticket tiers for an event', async () => {
       const res = await request(app)
-        .get(`/api/v1/events/${createdEventId}/seat-categories`)
+        .get(`/api/v1/events/${createdEventId}/tiers`)
         .set('x-tenant-id', 'tenant-001')
         .set('Authorization', `Bearer ${organizerToken}`);
 
@@ -154,31 +152,22 @@ describe('Phase 3 — Event Service API', () => {
       expect(res.body.data.length).toBeGreaterThan(0);
     });
 
-    it('should add a new seat category (VVIP)', async () => {
+    it('should add a new ticket tier (VVIP)', async () => {
       const res = await request(app)
-        .post(`/api/v1/events/${createdEventId}/seat-categories`)
+        .post(`/api/v1/events/${createdEventId}/tiers`)
         .set('x-tenant-id', 'tenant-001')
         .set('Authorization', `Bearer ${organizerToken}`)
         .send({
-          name: 'VVIP Royal',
+          name: 'VVIP Royal Stage',
+          description: 'Front stage lounge & dinner',
           price: 3000000,
-          rows: ['S1', 'S2'],
-          cols: 5,
+          quota: 50,
           color: '#F59E0B',
+          sort_order: 1,
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.name).toBe('VVIP Royal');
-    });
-
-    it('should regenerate seat map layout', async () => {
-      const res = await request(app)
-        .post(`/api/v1/events/${createdEventId}/regenerate-seats`)
-        .set('x-tenant-id', 'tenant-001')
-        .set('Authorization', `Bearer ${organizerToken}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.data.total_seats).toBeGreaterThan(0);
+      expect(res.body.data.name).toBe('VVIP Royal Stage');
     });
   });
 
@@ -192,7 +181,6 @@ describe('Phase 3 — Event Service API', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe(createdEventId);
 
-      // Verify event is soft-deleted
       const detailRes = await request(app)
         .get(`/api/v1/events/${createdEventId}`)
         .set('x-tenant-id', 'tenant-001');

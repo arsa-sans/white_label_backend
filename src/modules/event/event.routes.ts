@@ -1,23 +1,24 @@
 /**
  * src/modules/event/event.routes.ts
  *
- * Route definitions for Event Service (Phase 3)
+ * Route definitions for Event Service (Phase 3 — Ticket Tier Based)
  *
  * Public (no auth):
  *   GET /events              — catalog with search/filter/pagination
- *   GET /events/:id          — event detail + stats
- *   GET /events/:id/seats    — seat map
+ *   GET /events/:id          — event detail + tier stats
+ *   GET /events/:id/tiers    — ticket tiers list with quota
  *
  * Organizer + Admin:
- *   GET    /events/me                              — organizer's own events
- *   POST   /events                                 — create event
- *   PUT    /events/:id                             — update event
- *   DELETE /events/:id                             — soft-delete event
- *   POST   /events/:id/banner                      — update banner URL
- *   GET    /events/:id/seat-categories             — list seat categories
- *   POST   /events/:id/seat-categories             — add/update seat category
- *   DELETE /events/:id/seat-categories/:catId      — remove seat category
- *   POST   /events/:id/regenerate-seats            — rebuild seat layout
+ *   GET    /events/me                       — organizer's own events
+ *   POST   /events                          — create event
+ *   PUT    /events/:id                      — update event
+ *   DELETE /events/:id                      — soft-delete event
+ *   POST   /events/:id/banner               — update banner URL
+ *   POST   /events/:id/tiers                — add/update ticket tier
+ *   DELETE /events/:id/tiers/:tierId        — remove ticket tier
+ *   GET    /events/:id/staff                — list event staff
+ *   POST   /events/:id/staff                — assign gate staff/vendor
+ *   DELETE /events/:id/staff/:userId        — remove staff
  *
  * Admin only:
  *   GET /events/admin/all   — all events across tenants
@@ -32,15 +33,13 @@ import {
   listAllEvents,
   listMyEvents,
   getEventById,
-  getEventSeats,
+  listTicketTiers,
   createEvent,
   updateEvent,
   deleteEvent,
   uploadBanner,
-  listSeatCategories,
-  upsertSeatCategory,
-  deleteSeatCategory,
-  regenerateSeats,
+  upsertTicketTier,
+  deleteTicketTier,
   listEventStaff,
   addEventStaff,
   removeEventStaff,
@@ -50,7 +49,7 @@ const router = Router();
 
 /* ── public routes ───────────────────────────────────────── */
 router.get('/', listEvents);
-router.get('/:id/seats', getEventSeats);
+router.get('/:id/tiers', listTicketTiers);
 
 /* ── admin-only ─────────────────────────────────────────── */
 router.get(
@@ -92,7 +91,6 @@ router.post(
   createEvent
 );
 
-
 router.put(
   '/:id',
   authenticate,
@@ -115,33 +113,18 @@ router.post(
   uploadBanner
 );
 
-
-router.get(
-  '/:id/seat-categories',
-  authenticate,
-  requireRole(['organizer', 'admin']),
-  listSeatCategories
-);
-
 router.post(
-  '/:id/seat-categories',
+  '/:id/tiers',
   authenticate,
   requireRole(['organizer', 'admin']),
-  upsertSeatCategory
+  upsertTicketTier
 );
 
 router.delete(
-  '/:id/seat-categories/:catId',
+  '/:id/tiers/:tierId',
   authenticate,
   requireRole(['organizer', 'admin']),
-  deleteSeatCategory
-);
-
-router.post(
-  '/:id/regenerate-seats',
-  authenticate,
-  requireRole(['organizer', 'admin']),
-  regenerateSeats
+  deleteTicketTier
 );
 
 /* ── public detail (must come after static paths above) ──── */

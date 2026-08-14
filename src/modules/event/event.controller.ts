@@ -1,22 +1,26 @@
 /**
  * src/modules/event/event.controller.ts
  *
- * Phase 3 — Event Service (Full Implementation)
+ * Phase 3 — Event Service (Ticket Tier Based)
  * ─────────────────────────────────────────────
  * Public endpoints (no auth required):
  *   GET /events → list events (search, filter, pagination)
- *   GET /events/:id → event detail
- *   GET /events/:id/seats → seat map layout (with lock expiry check)
+ *   GET /events/:id → event detail + tier stats
+ *   GET /events/:id/tiers → ticket tiers list with sisa kuota
  *
  * Organizer-only endpoints (auth + requireRole(['organizer','admin'])):
- *   POST /events → create event
+ *   POST /events → create event (auto seeds default ticket tiers)
  *   PUT /events/:id → update event
  *   DELETE /events/:id → delete event (soft: status → 'deleted')
  *   POST /events/:id/banner → upload banner (Multer file or URL)
- *   GET /events/:id/seat-categories → list seat categories
- *   POST /events/:id/seat-categories → add/replace seat category
- *   DELETE /events/:id/seat-categories/:catId → remove seat category
- *   POST /events/:id/regenerate-seats → rebuild seat layout from categories
+ *   GET /events/:id/tiers → list ticket tiers
+ *   POST /events/:id/tiers → add/update ticket tier
+ *   DELETE /events/:id/tiers/:tierId → remove ticket tier
+ *
+ * Staff Management:
+ *   GET /events/:id/staff → list assigned gate staff & vendors
+ *   POST /events/:id/staff → assign gate staff
+ *   DELETE /events/:id/staff/:userId → remove staff assignment
  *
  * Admin-only:
  *   GET /events/admin/all → all events across tenants (admin panel)
@@ -26,7 +30,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 const uuidv4 = () => crypto.randomUUID();
-import { dataStore, DemoEvent, DemoSeatCategory } from '../../database/dataStore';
+import { dataStore, DemoEvent, DemoTicketTier } from '../../database/dataStore';
 import { ApiResponse } from '../../utils/apiResponse';
 import { JwtPayload } from '../../middlewares/auth.middleware';
 
@@ -38,6 +42,7 @@ export const createEventSchema = z.object({
   category: z.string().optional(),
   location: z.string().min(3, 'Location is required'),
   venue_name: z.string().optional(),
+  venue_layout_info: z.string().optional(),
   start_date: z.string().min(1, 'start_date is required'),
   end_date: z.string().min(1, 'end_date is required'),
   capacity: z.union([z.number(), z.string().transform((v) => Number(v))]).optional(),
@@ -45,61 +50,30 @@ export const createEventSchema = z.object({
   status: z.enum(['draft', 'published', 'ended']).optional(),
 });
 
-export const upsertSeatCategorySchema = z.object({
-  catId: z.string().optional(),
-  name: z.string().min(1, 'Category name is required'),
+export const upsertTicketTierSchema = z.object({
+  tierId: z.string().optional(),
+  name: z.string().min(1, 'Tier name is required'),
+  description: z.string().optional(),
   price: z.union([z.number(), z.string().transform((v) => Number(v))]),
-  rows: z.union([z.array(z.string()), z.string().transform((v) => [v])]),
-  cols: z.union([z.number(), z.string().transform((v) => Number(v))]),
+  quota: z.union([z.number(), z.string().transform((v) => Number(v))]),
   color: z.string().optional(),
+  sort_order: z.union([z.number(), z.string().transform((v) => Number(v))]).optional(),
 });
 
 /* ─── helpers ─────────────────────────────────────────────── */
 
-function expireLockedSeats(eventId: string): void {
-  const now = Date.now();
-  dataStore.seats.forEach((seat) => {
-    if (seat.event_id === eventId && seat.status === 'locked' && seat.locked_until) {
-      if (new Date(seat.locked_until).getTime() < now) {
-        seat.status = 'available';
-        seat.locked_until = undefined;
-        seat.locked_by_user_id = undefined;
-      }
-    }
-  });
-}
+function recalculateEventPrices(eventId: string): void {
+  const event = dataStore.events.find((e) => e.id === eventId);
+  if (!event) return;
 
-function rebuildSeatsFromCategories(eventId: string): void {
-  // Keep sold seats to avoid orphan tickets
-  const soldSeats = dataStore.seats.filter(
-    (s) => s.event_id === eventId && s.status === 'sold'
-  );
-  dataStore.seats = dataStore.seats.filter(
-    (s) => s.event_id !== eventId || s.status === 'sold'
-  );
-
-  const categories = dataStore.seatCategories.filter((c) => c.event_id === eventId);
-
-  for (const cat of categories) {
-    for (const rowLabel of cat.rows) {
-      for (let col = 1; col <= cat.cols; col++) {
-        const seatId = `seat-${eventId}-${rowLabel}${col}`;
-        // Skip if already sold
-        const alreadySold = soldSeats.find((s) => s.id === seatId);
-        if (alreadySold) continue;
-
-        const isPreSold = Math.random() < 0.08; // 8% pre-sold for realism
-        dataStore.seats.push({
-          id: seatId,
-          event_id: eventId,
-          row: rowLabel,
-          number: col,
-          category: cat.name as any,
-          price: cat.price,
-          status: isPreSold ? 'sold' : 'available',
-        });
-      }
-    }
+  const tiers = dataStore.ticketTiers.filter((t) => t.event_id === eventId);
+  if (tiers.length > 0) {
+    event.price_min = Math.min(...tiers.map((t) => t.price));
+    event.price_max = Math.max(...tiers.map((t) => t.price));
+    event.capacity = tiers.reduce((sum, t) => sum + t.quota, 0);
+  } else {
+    event.price_min = 0;
+    event.price_max = 0;
   }
 }
 
@@ -113,7 +87,7 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
     (e) => e.tenant_id === tenantId && e.status !== 'deleted'
   );
 
-  // Filter by status (default: only published for public)
+  // Filter by status (default: published)
   if (status && typeof status === 'string') {
     result = result.filter((e) => e.status === status);
   } else {
@@ -171,21 +145,21 @@ export async function getEventById(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // Attach computed stats
-  const allSeats = dataStore.seats.filter((s) => s.event_id === id);
-  expireLockedSeats(id);
-  const availableSeats = allSeats.filter((s) => s.status === 'available').length;
-  const soldSeats = allSeats.filter((s) => s.status === 'sold').length;
+  // Compute tier stats
+  const tiers = dataStore.ticketTiers.filter((t) => t.event_id === id);
+  const totalQuota = tiers.reduce((acc, t) => acc + t.quota, 0);
+  const totalSold = tiers.reduce((acc, t) => acc + t.sold, 0);
 
   res.json(
     ApiResponse.success(
       {
         ...event,
+        tiers,
         stats: {
-          total_seats: allSeats.length,
-          available_seats: availableSeats,
-          sold_seats: soldSeats,
-          sold_percent: allSeats.length > 0 ? Math.round((soldSeats / allSeats.length) * 100) : 0,
+          total_quota: totalQuota,
+          total_sold: totalSold,
+          available_quota: totalQuota - totalSold,
+          sold_percent: totalQuota > 0 ? Math.round((totalSold / totalQuota) * 100) : 0,
         },
       },
       'Event details retrieved successfully'
@@ -193,25 +167,19 @@ export async function getEventById(req: Request, res: Response): Promise<void> {
   );
 }
 
-/* ─── public: seat map ────────────────────────────────────── */
+/* ─── public: ticket tiers list ───────────────────────────── */
 
-export async function getEventSeats(req: Request, res: Response): Promise<void> {
+export async function listTicketTiers(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
-  expireLockedSeats(id);
+  const tiers = dataStore.ticketTiers.filter((t) => t.event_id === id);
+  tiers.sort((a, b) => a.sort_order - b.sort_order);
 
-  const eventSeats = dataStore.seats.filter((s) => s.event_id === id);
+  const enriched = tiers.map((t) => ({
+    ...t,
+    available: t.quota - t.sold,
+  }));
 
-  res.json(
-    ApiResponse.success(
-      {
-        event_id: id,
-        total_seats: eventSeats.length,
-        available_seats: eventSeats.filter((s) => s.status === 'available').length,
-        seats: eventSeats,
-      },
-      'Event seats layout retrieved'
-    )
-  );
+  res.json(ApiResponse.success(enriched, 'Ticket tiers retrieved'));
 }
 
 /* ─── organizer: create event ─────────────────────────────── */
@@ -224,6 +192,7 @@ export async function createEvent(req: Request, res: Response): Promise<void> {
     category,
     location,
     venue_name,
+    venue_layout_info,
     start_date,
     end_date,
     capacity,
@@ -242,40 +211,73 @@ export async function createEvent(req: Request, res: Response): Promise<void> {
     organizer_id: actor.userId,
     name,
     description: description || '',
-    category: category || 'General',
+    category: category || 'Concert',
     location,
     venue_name: venue_name || location,
+    venue_layout_info: venue_layout_info || 'Area panggung utama berada di titik terdepan. Tier tiket disusun berdasarkan jarak dari panggung.',
     start_date,
     end_date,
-    capacity: capacity ? Number(capacity) : 0,
-    banner_url: banner_url || 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&h=600&fit=crop',
+    capacity: capacity ? Number(capacity) : 4700,
+    banner_url: banner_url || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&h=600&fit=crop',
     status: ['draft', 'published'].includes(status) ? status : 'draft',
-    price_min: 0,
-    price_max: 0,
+    price_min: 350000,
+    price_max: 1800000,
   };
 
   dataStore.events.push(newEvent);
 
-  // Seed default seat categories
-  const defaultCategories: DemoSeatCategory[] = [
-    { id: uuidv4(), event_id: newEvent.id, name: 'VIP', price: 1500000, rows: ['A', 'B'], cols: 10, color: '#7C3AED' },
-    { id: uuidv4(), event_id: newEvent.id, name: 'CAT 1', price: 900000, rows: ['C', 'D', 'E'], cols: 12, color: '#2563EB' },
-    { id: uuidv4(), event_id: newEvent.id, name: 'CAT 2', price: 500000, rows: ['F', 'G'], cols: 15, color: '#059669' },
-    { id: uuidv4(), event_id: newEvent.id, name: 'FESTIVAL', price: 200000, rows: ['GA'], cols: 40, color: '#D97706' },
+  // Seed default ticket tiers for new event based on panggung distance
+  const defaultTiers: DemoTicketTier[] = [
+    {
+      id: `tier-${newEvent.id}-vip`,
+      event_id: newEvent.id,
+      name: 'VIP Front Stage (0-10m)',
+      description: 'Zona terdekat dengan panggung utama. Termasuk Fast-Track Gate & Lounge.',
+      price: 1800000,
+      quota: 200,
+      sold: 0,
+      color: '#7C3AED',
+      sort_order: 1,
+    },
+    {
+      id: `tier-${newEvent.id}-cat1`,
+      event_id: newEvent.id,
+      name: 'CAT 1 Near Stage (10-25m)',
+      description: 'Zona tengah depan dengan view panggung & lighting optimal.',
+      price: 1200000,
+      quota: 500,
+      sold: 0,
+      color: '#2563EB',
+      sort_order: 2,
+    },
+    {
+      id: `tier-${newEvent.id}-cat2`,
+      event_id: newEvent.id,
+      name: 'CAT 2 Mid Field (25-50m)',
+      description: 'Zona tengah lapangan dengan kenyamanan suara & LED videotron.',
+      price: 750000,
+      quota: 1000,
+      sold: 0,
+      color: '#059669',
+      sort_order: 3,
+    },
+    {
+      id: `tier-${newEvent.id}-fest`,
+      event_id: newEvent.id,
+      name: 'FESTIVAL General (50m+)',
+      description: 'Zona festival outdoor paling belakang. Akses area booth kuliner & UMKM.',
+      price: 350000,
+      quota: 3000,
+      sold: 0,
+      color: '#D97706',
+      sort_order: 4,
+    },
   ];
-  dataStore.seatCategories.push(...defaultCategories);
 
-  // Generate initial seat layout
-  rebuildSeatsFromCategories(newEvent.id);
+  dataStore.ticketTiers.push(...defaultTiers);
+  recalculateEventPrices(newEvent.id);
 
-  // Recalculate price_min/max
-  const cats = dataStore.seatCategories.filter((c) => c.event_id === newEvent.id);
-  if (cats.length) {
-    newEvent.price_min = Math.min(...cats.map((c) => c.price));
-    newEvent.price_max = Math.max(...cats.map((c) => c.price));
-  }
-
-  res.status(201).json(ApiResponse.success(newEvent, 'Event created successfully'));
+  res.status(201).json(ApiResponse.success(newEvent, 'Event created successfully with default ticket tiers'));
 }
 
 /* ─── organizer: update event ─────────────────────────────── */
@@ -290,13 +292,12 @@ export async function updateEvent(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // Organizers can only edit their own events; admins can edit any
   if (actor.role === 'organizer' && event.organizer_id !== actor.userId) {
     res.status(403).json(ApiResponse.error('You can only edit your own events', 403));
     return;
   }
 
-  const allowed = ['name', 'description', 'category', 'location', 'venue_name', 'start_date', 'end_date', 'capacity', 'banner_url', 'status'];
+  const allowed = ['name', 'description', 'category', 'location', 'venue_name', 'venue_layout_info', 'start_date', 'end_date', 'capacity', 'banner_url', 'status'];
   for (const key of allowed) {
     if (req.body[key] !== undefined) {
       (event as any)[key] = req.body[key];
@@ -323,7 +324,6 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // Soft delete
   event.status = 'deleted';
   res.json(ApiResponse.success({ id }, 'Event deleted successfully'));
 }
@@ -357,33 +357,17 @@ export async function uploadBanner(req: Request, res: Response): Promise<void> {
       'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&h=600&fit=crop',
       'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=600&fit=crop',
       'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=1200&h=600&fit=crop',
-      'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&h=600&fit=crop',
-      'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1200&h=600&fit=crop',
     ];
     finalBannerUrl = UNSPLASH_POOLS[Math.floor(Math.random() * UNSPLASH_POOLS.length)];
   }
 
   event.banner_url = finalBannerUrl;
-
-  res.json(
-    ApiResponse.success(
-      { banner_url: event.banner_url },
-      'Banner updated successfully'
-    )
-  );
+  res.json(ApiResponse.success({ banner_url: event.banner_url }, 'Banner updated successfully'));
 }
 
-/* ─── organizer: list seat categories ────────────────────── */
+/* ─── organizer: upsert ticket tier ──────────────────────── */
 
-export async function listSeatCategories(req: Request, res: Response): Promise<void> {
-  const id = req.params.id as string;
-  const categories = dataStore.seatCategories.filter((c) => c.event_id === id);
-  res.json(ApiResponse.success(categories, 'Seat categories retrieved'));
-}
-
-/* ─── organizer: upsert seat category ────────────────────── */
-
-export async function upsertSeatCategory(req: Request, res: Response): Promise<void> {
+export async function upsertTicketTier(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
   const actor = req.user as JwtPayload;
 
@@ -398,48 +382,47 @@ export async function upsertSeatCategory(req: Request, res: Response): Promise<v
     return;
   }
 
-  const { catId, name, price, rows, cols, color } = req.body;
+  const { tierId, name, description, price, quota, color, sort_order } = req.body;
 
-  if (!name || !price || !rows || !cols) {
-    res.status(400).json(ApiResponse.error('name, price, rows (array), cols are required', 400));
+  if (!name || price === undefined || quota === undefined) {
+    res.status(400).json(ApiResponse.error('name, price, and quota are required', 400));
     return;
   }
 
-  let cat = catId ? dataStore.seatCategories.find((c) => c.id === catId && c.event_id === id) : undefined;
+  let tier = tierId ? dataStore.ticketTiers.find((t) => t.id === tierId && t.event_id === id) : undefined;
 
-  if (cat) {
-    cat.name = name;
-    cat.price = Number(price);
-    cat.rows = Array.isArray(rows) ? rows : [rows];
-    cat.cols = Number(cols);
-    cat.color = color || cat.color;
+  if (tier) {
+    tier.name = name;
+    tier.description = description || tier.description;
+    tier.price = Number(price);
+    tier.quota = Number(quota);
+    tier.color = color || tier.color;
+    if (sort_order !== undefined) tier.sort_order = Number(sort_order);
   } else {
-    const newCat: DemoSeatCategory = {
-      id: uuidv4(),
+    const newTier: DemoTicketTier = {
+      id: `tier-${id}-${uuidv4().slice(0, 6)}`,
       event_id: id,
       name,
+      description: description || '',
       price: Number(price),
-      rows: Array.isArray(rows) ? rows : [rows],
-      cols: Number(cols),
+      quota: Number(quota),
+      sold: 0,
       color: color || '#6366F1',
+      sort_order: sort_order ? Number(sort_order) : dataStore.ticketTiers.filter((t) => t.event_id === id).length + 1,
     };
-    cat = newCat;
-    dataStore.seatCategories.push(newCat);
+    tier = newTier;
+    dataStore.ticketTiers.push(newTier);
   }
 
-  // Recalculate price_min/max on event
-  const allCats = dataStore.seatCategories.filter((c) => c.event_id === id);
-  event.price_min = Math.min(...allCats.map((c) => c.price));
-  event.price_max = Math.max(...allCats.map((c) => c.price));
-
-  res.json(ApiResponse.success(cat, catId ? 'Category updated' : 'Category added'));
+  recalculateEventPrices(id);
+  res.json(ApiResponse.success(tier, tierId ? 'Ticket tier updated' : 'Ticket tier added'));
 }
 
-/* ─── organizer: delete seat category ────────────────────── */
+/* ─── organizer: delete ticket tier ──────────────────────── */
 
-export async function deleteSeatCategory(req: Request, res: Response): Promise<void> {
+export async function deleteTicketTier(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
-  const catId = req.params.catId as string;
+  const tierId = req.params.tierId as string;
   const actor = req.user as JwtPayload;
 
   const event = dataStore.events.find((e) => e.id === id && e.status !== 'deleted');
@@ -453,50 +436,16 @@ export async function deleteSeatCategory(req: Request, res: Response): Promise<v
     return;
   }
 
-  const idx = dataStore.seatCategories.findIndex((c) => c.id === catId && c.event_id === id);
+  const idx = dataStore.ticketTiers.findIndex((t) => t.id === tierId && t.event_id === id);
   if (idx === -1) {
-    res.status(404).json(ApiResponse.error('Category not found', 404));
+    res.status(404).json(ApiResponse.error('Ticket tier not found', 404));
     return;
   }
 
-  dataStore.seatCategories.splice(idx, 1);
+  dataStore.ticketTiers.splice(idx, 1);
+  recalculateEventPrices(id);
 
-  // Recalculate
-  const remaining = dataStore.seatCategories.filter((c) => c.event_id === id);
-  if (remaining.length) {
-    event.price_min = Math.min(...remaining.map((c) => c.price));
-    event.price_max = Math.max(...remaining.map((c) => c.price));
-  }
-
-  res.json(ApiResponse.success({ catId }, 'Category deleted'));
-}
-
-/* ─── organizer: regenerate seat layout ───────────────────── */
-
-export async function regenerateSeats(req: Request, res: Response): Promise<void> {
-  const id = req.params.id as string;
-  const actor = req.user as JwtPayload;
-
-  const event = dataStore.events.find((e) => e.id === id && e.status !== 'deleted');
-  if (!event) {
-    res.status(404).json(ApiResponse.error('Event not found', 404));
-    return;
-  }
-
-  if (actor.role === 'organizer' && event.organizer_id !== actor.userId) {
-    res.status(403).json(ApiResponse.error('Forbidden', 403));
-    return;
-  }
-
-  rebuildSeatsFromCategories(id);
-  const newSeats = dataStore.seats.filter((s) => s.event_id === id);
-
-  res.json(
-    ApiResponse.success(
-      { total_seats: newSeats.length, event_id: id },
-      'Seat layout regenerated from categories'
-    )
-  );
+  res.json(ApiResponse.success({ tierId }, 'Ticket tier deleted'));
 }
 
 /* ─── organizer: my events ────────────────────────────────── */
@@ -516,18 +465,18 @@ export async function listMyEvents(req: Request, res: Response): Promise<void> {
     result = result.filter((e) => e.status === status);
   }
 
-  // Attach seat stats per event
+  // Attach tier stats per event
   const enriched = result.map((e) => {
-    const seats = dataStore.seats.filter((s) => s.event_id === e.id);
-    const sold = seats.filter((s) => s.status === 'sold').length;
-    const available = seats.filter((s) => s.status === 'available').length;
+    const eventTiers = dataStore.ticketTiers.filter((t) => t.event_id === e.id);
+    const totalQuota = eventTiers.reduce((sum, t) => sum + t.quota, 0);
+    const totalSold = eventTiers.reduce((sum, t) => sum + t.sold, 0);
     return {
       ...e,
       stats: {
-        total_seats: seats.length,
-        sold_seats: sold,
-        available_seats: available,
-        sold_percent: seats.length > 0 ? Math.round((sold / seats.length) * 100) : 0,
+        total_seats: totalQuota, // legacy alias for FE compatibility
+        sold_seats: totalSold,
+        available_seats: totalQuota - totalSold,
+        sold_percent: totalQuota > 0 ? Math.round((totalSold / totalQuota) * 100) : 0,
       },
     };
   });
@@ -546,51 +495,48 @@ export async function listEventStaff(req: Request, res: Response): Promise<void>
       id: es.id,
       user_id: es.user_id,
       event_id: es.event_id,
-      name: user?.name || 'Gate Staff',
+      name: user?.name || 'Gate Staff / Vendor',
       email: user?.email || '',
-      role: user?.role || 'gate_staff',
+      role: es.role,
       assigned_at: es.assigned_at,
     };
   });
 
-  res.json(ApiResponse.success(staffDetails, 'Daftar gate staff event berhasil dimuat'));
+  res.json(ApiResponse.success(staffDetails, 'Daftar staff/vendor event berhasil dimuat'));
 }
 
 export async function addEventStaff(req: Request, res: Response): Promise<void> {
   const eventId = req.params.id as string;
   const actor = req.user as JwtPayload;
-  const { name, email, password } = req.body;
+  const { name, email, password, role = 'gate_staff' } = req.body;
 
   if (!email || !name || !password) {
-    res.status(400).json(ApiResponse.error('Nama, email, dan password gate staff wajib diisi', 400));
+    res.status(400).json(ApiResponse.error('Nama, email, dan password wajib diisi', 400));
     return;
   }
 
-  // Cek apakah user sudah terdaftar
   let user = dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
 
   if (!user) {
-    // Buat akun gate staff baru
     user = {
       id: `user-${crypto.randomUUID().slice(0, 8)}`,
       tenant_id: actor.tenantId || 'tenant-001',
       name,
       email,
       password_hash: password,
-      role: 'gate_staff',
+      role: role === 'vendor' ? 'vendor' : 'gate_staff',
       approval_status: 'approved',
       invited_by_organizer_id: actor.userId,
     };
     dataStore.users.push(user);
   }
 
-  // Cek apakah sudah di-assign ke event ini
   const existingAssigned = dataStore.eventStaff.find(
     (es) => es.event_id === eventId && es.user_id === user!.id
   );
 
   if (existingAssigned) {
-    res.status(409).json(ApiResponse.error('Gate staff ini sudah ditugaskan pada event ini', 409));
+    res.status(409).json(ApiResponse.error('Akun ini sudah ditugaskan pada event ini', 409));
     return;
   }
 
@@ -598,7 +544,7 @@ export async function addEventStaff(req: Request, res: Response): Promise<void> 
     id: `evtstaff-${crypto.randomUUID().slice(0, 8)}`,
     event_id: eventId,
     user_id: user.id,
-    role: 'gate_staff' as const,
+    role: (role === 'vendor' ? 'vendor' : 'gate_staff') as 'gate_staff' | 'vendor',
     assigned_at: new Date().toISOString(),
   };
 
@@ -611,10 +557,10 @@ export async function addEventStaff(req: Request, res: Response): Promise<void> 
         user_id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
+        role: newAssigned.role,
         assigned_at: newAssigned.assigned_at,
       },
-      'Gate staff berhasil ditambahkan ke event'
+      'Staff/Vendor berhasil ditambahkan ke event'
     )
   );
 }
@@ -628,11 +574,10 @@ export async function removeEventStaff(req: Request, res: Response): Promise<voi
   );
 
   if (idx === -1) {
-    res.status(404).json(ApiResponse.error('Gate staff tidak ditemukan pada event ini', 404));
+    res.status(404).json(ApiResponse.error('Staff tidak ditemukan pada event ini', 404));
     return;
   }
 
   dataStore.eventStaff.splice(idx, 1);
-  res.json(ApiResponse.success({ event_id: eventId, user_id: userId }, 'Gate staff berhasil dihapus dari event'));
+  res.json(ApiResponse.success({ event_id: eventId, user_id: userId }, 'Staff berhasil dihapus dari event'));
 }
-

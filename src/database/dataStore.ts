@@ -57,26 +57,16 @@ export interface DemoPaymentMethod {
   is_default: boolean;
 }
 
-export interface DemoSeat {
+export interface DemoTicketTier {
   id: string;
   event_id: string;
-  row: string;
-  number: number;
-  category: string;
+  name: string;          // e.g. "VIP (Depan Panggung 0-10m)", "CAT 1", "FESTIVAL"
+  description: string;   // e.g. "Area khusus berdiri paling depan panggung utama"
   price: number;
-  status: 'available' | 'locked' | 'sold';
-  locked_until?: string;
-  locked_by_user_id?: string;
-}
-
-export interface DemoSeatCategory {
-  id: string;
-  event_id: string;
-  name: string;
-  price: number;
-  rows: string[];
-  cols: number;
-  color: string;
+  quota: number;         // Total kuota tiket untuk tier ini
+  sold: number;          // Jumlah tiket yang sudah terjual
+  color: string;         // Warna representasi badge
+  sort_order: number;    // Urutan tier (1 = paling dekat panggung)
 }
 
 export interface DemoEvent {
@@ -95,9 +85,10 @@ export interface DemoEvent {
   status: 'published' | 'draft' | 'ended' | 'deleted';
   price_min: number;
   price_max: number;
+  venue_layout_info?: string; // Deskripsi/penjelasan tata letak panggung & penonton
 }
 
-/** Relasi Gate Staff ↔ Event (staff di-assign ke event tertentu oleh organizer) */
+/** Relasi Gate Staff / Vendor ↔ Event */
 export interface DemoEventStaff {
   id: string;
   event_id: string;
@@ -106,18 +97,33 @@ export interface DemoEventStaff {
   assigned_at: string;
 }
 
+export interface DemoVendor {
+  id: string;
+  event_id: string;
+  owner_user_id: string;
+  booth_name: string;
+  category: string;
+  created_at: string;
+}
+
 export interface DemoTicket {
   id: string;
   event_id: string;
-  seat_id: string;
+  tier_id: string;
+  tier_name: string;
   user_id: string;
   order_id: string;
   qr_seed: string;
-  seat_name: string;
-  category: string;
   price: number;
   status: 'valid' | 'used' | 'void' | 'refunded';
   issued_at: string;
+}
+
+export interface DemoOrderItem {
+  tier_id: string;
+  tier_name: string;
+  quantity: number;
+  unit_price: number;
 }
 
 export interface DemoOrder {
@@ -126,12 +132,12 @@ export interface DemoOrder {
   user_id: string;
   event_id: string;
   amount: number;
+  items: DemoOrderItem[];
   status: 'pending' | 'paid' | 'failed' | 'expired';
   idempotency_key: string;
   payment_gateway: string;
   gateway_ref?: string;
   created_at: string;
-  seat_ids: string[];
 }
 
 export interface DemoWallet {
@@ -174,15 +180,7 @@ class DataStore {
     },
   ];
 
-  /**
-   * Fresh seed users — password plain-text (demo in-memory only).
-   *
-   * Default credentials:
-   *   admin@demo.wl        : Admin@2026!
-   *   organizer@demo.wl    : Organizer@2026!  (status: approved)
-   *   gate@demo.wl         : Gate@2026!       (di-invite organizer demo)
-   *   visitor@demo.wl      : Visitor@2026!
-   */
+  /** Users with proper roles & organizer-event relationships */
   public users: DemoUser[] = [
     // 1. Admin System
     {
@@ -204,7 +202,7 @@ class DataStore {
       approval_status: 'approved',
     },
 
-    // 2. Organizer Event
+    // 2. Organizer 1 (Elena Rostova)
     {
       id: 'user-organizer-001',
       tenant_id: 'tenant-001',
@@ -213,6 +211,7 @@ class DataStore {
       password_hash: 'Organizer@2026!',
       role: 'organizer',
       approval_status: 'approved',
+      company_name: 'Soundwave Live Entertainment',
       organizer_event_name: 'Neon Genesis Music Festival 2026',
       organizer_event_date: '2026-09-15',
       organizer_event_location: 'JIExpo Kemayoran, Jakarta',
@@ -225,12 +224,28 @@ class DataStore {
       password_hash: 'Organizer@2026!',
       role: 'organizer',
       approval_status: 'approved',
+      company_name: 'Soundwave Live Entertainment',
       organizer_event_name: 'Neon Genesis Music Festival 2026',
       organizer_event_date: '2026-09-15',
       organizer_event_location: 'JIExpo Kemayoran, Jakarta',
     },
 
-    // 3. Gate Staff
+    // 3. Organizer 2 (Budi Pratama)
+    {
+      id: 'user-organizer-003',
+      tenant_id: 'tenant-001',
+      name: 'Budi Pratama Pro',
+      email: 'budi.organizer@gmail.com',
+      password_hash: 'Organizer@2026!',
+      role: 'organizer',
+      approval_status: 'approved',
+      company_name: 'Indie Concert Asia',
+      organizer_event_name: 'Indie Rock Night 2026',
+      organizer_event_date: '2026-11-05',
+      organizer_event_location: 'Senayan Park Lawn, Jakarta',
+    },
+
+    // 4. Gate Staff
     {
       id: 'user-staff-1',
       tenant_id: 'tenant-001',
@@ -252,7 +267,7 @@ class DataStore {
       invited_by_organizer_id: 'user-organizer-001',
     },
 
-    // 4. Visitor / Penonton
+    // 5. Visitor / Penonton
     {
       id: 'user-visitor-001',
       tenant_id: 'tenant-001',
@@ -272,11 +287,11 @@ class DataStore {
       approval_status: 'approved',
     },
 
-    // 5. Vendor Booth
+    // 6. Vendor Booth
     {
       id: 'user-vendor-001',
       tenant_id: 'tenant-001',
-      name: 'Vendor Booth Demo',
+      name: 'Vendor Food & Beverage',
       email: 'vendor@demo.wl',
       password_hash: 'Vendor@2026!',
       role: 'vendor',
@@ -285,7 +300,7 @@ class DataStore {
     },
   ];
 
-
+  /** Events belonging to organizers */
   public events: DemoEvent[] = [
     {
       id: 'evt-001',
@@ -298,11 +313,12 @@ class DataStore {
       venue_name: 'Main Stage Arena A',
       start_date: '2026-09-15T16:00:00Z',
       end_date: '2026-09-15T23:59:00Z',
-      capacity: 15000,
+      capacity: 4700,
       banner_url: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&h=600&fit=crop',
       status: 'published',
       price_min: 350000,
       price_max: 1800000,
+      venue_layout_info: 'Panggung Utama berada di titik Utara. Area VIP berada tepat di depan panggung (jarak 0-10m), diikuti CAT 1 (10-25m), CAT 2 (25-50m), dan Zona FESTIVAL di area belakang dengan layar videotron raksasa.',
     },
     {
       id: 'evt-002',
@@ -315,56 +331,156 @@ class DataStore {
       venue_name: 'Grand Ballroom',
       start_date: '2026-10-20T08:00:00Z',
       end_date: '2026-10-21T18:00:00Z',
-      capacity: 3500,
+      capacity: 1000,
       banner_url: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=600&fit=crop',
       status: 'published',
       price_min: 750000,
       price_max: 2500000,
+      venue_layout_info: 'VVIP mendapat meja paling depan panggung utama & VIP networking lounge. Premium di area tengah ballroom. Regular di bagian belakang.',
     },
     {
       id: 'evt-003',
       tenant_id: 'tenant-001',
-      organizer_id: 'user-organizer-001',
-      name: 'Indie Indie Fest 2026',
+      organizer_id: 'user-organizer-003',
+      name: 'Indie Rock Night 2026',
       category: 'Concert',
       description: 'Festival musik indie lokal 2 hari penuh dengan lebih dari 30 band pilihan & pasar kreatif UMKM.',
       location: 'Senayan Park Lawn, Jakarta',
       venue_name: 'Outdoor Stage',
       start_date: '2026-11-05T13:00:00Z',
       end_date: '2026-11-06T22:00:00Z',
-      capacity: 8000,
+      capacity: 650,
       banner_url: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=1200&h=600&fit=crop',
       status: 'published',
       price_min: 250000,
       price_max: 600000,
+      venue_layout_info: 'Standing VIP berada di panggung utama pit depan. General Admission berada di area rumput outdoor.',
     },
   ];
 
-  public seats: DemoSeat[] = [];
-  public seatCategories: DemoSeatCategory[] = [];
+  /** Ticket Tiers per event (replacing Seats) */
+  public ticketTiers: DemoTicketTier[] = [
+    // Event 1 Tiers
+    {
+      id: 'tier-evt1-vip',
+      event_id: 'evt-001',
+      name: 'VIP Front Stage (0-10m)',
+      description: 'Zona eksklusif tepat di depan panggung utama. Termasuk akses Fast-Track Gate & Merchandise Pack.',
+      price: 1800000,
+      quota: 200,
+      sold: 1, // 1 bought by demo ticket
+      color: '#7C3AED',
+      sort_order: 1,
+    },
+    {
+      id: 'tier-evt1-cat1',
+      event_id: 'evt-001',
+      name: 'CAT 1 Near Stage (10-25m)',
+      description: 'Zona tengah depan dengan pandangan jelas langsung ke panggung & tata lampu.',
+      price: 1200000,
+      quota: 500,
+      sold: 0,
+      color: '#2563EB',
+      sort_order: 2,
+    },
+    {
+      id: 'tier-evt1-cat2',
+      event_id: 'evt-001',
+      name: 'CAT 2 Mid Field (25-50m)',
+      description: 'Zona tengah lapangan dengan kenyamanan suara subwoofer & visual layar LED.',
+      price: 750000,
+      quota: 1000,
+      sold: 0,
+      color: '#059669',
+      sort_order: 3,
+    },
+    {
+      id: 'tier-evt1-fest',
+      event_id: 'evt-001',
+      name: 'FESTIVAL General (50m+)',
+      description: 'Zona outdoor festival paling belakang. Bebas berdiri & menikmati booth kuliner.',
+      price: 350000,
+      quota: 3000,
+      sold: 0,
+      color: '#D97706',
+      sort_order: 4,
+    },
+
+    // Event 2 Tiers
+    {
+      id: 'tier-evt2-vvip',
+      event_id: 'evt-002',
+      name: 'VVIP Executive',
+      description: 'Akses meja terdepan, private lounge, & gala dinner dengan pembicara.',
+      price: 2500000,
+      quota: 100,
+      sold: 0,
+      color: '#7C3AED',
+      sort_order: 1,
+    },
+    {
+      id: 'tier-evt2-premium',
+      event_id: 'evt-002',
+      name: 'Premium Pass',
+      description: 'Akses seating area depan & materi e-book konferensi.',
+      price: 1500000,
+      quota: 300,
+      sold: 0,
+      color: '#2563EB',
+      sort_order: 2,
+    },
+    {
+      id: 'tier-evt2-reg',
+      event_id: 'evt-002',
+      name: 'Regular Conference Pass',
+      description: 'Akses seluruh sesi presentasi & area pameran.',
+      price: 750000,
+      quota: 600,
+      sold: 0,
+      color: '#059669',
+      sort_order: 3,
+    },
+
+    // Event 3 Tiers
+    {
+      id: 'tier-evt3-vip',
+      event_id: 'evt-003',
+      name: 'Standing VIP Pit',
+      description: 'Area berdiri tepat di barikade panggung band indie.',
+      price: 600000,
+      quota: 150,
+      sold: 0,
+      color: '#7C3AED',
+      sort_order: 1,
+    },
+    {
+      id: 'tier-evt3-gen',
+      event_id: 'evt-003',
+      name: 'General Admission',
+      description: 'Bebas piknik & nonton dari area taman rumput.',
+      price: 2500000,
+      quota: 500,
+      sold: 0,
+      color: '#D97706',
+      sort_order: 2,
+    },
+  ];
+
   public tickets: DemoTicket[] = [];
   public orders: DemoOrder[] = [];
   public wallets: Map<string, DemoWallet> = new Map();
   public walletTxs: DemoWalletTx[] = [];
   public gateScanLogs: DemoGateScanLog[] = [];
 
-  // Tabel baru: relasi gate_staff ke event
+  /** Gate Staff & Vendor assignments */
   public eventStaff: DemoEventStaff[] = [];
+  public vendors: DemoVendor[] = [];
 
-  // Tabel baru: metode pembayaran e-wallet visitor
   public paymentMethods: DemoPaymentMethod[] = [];
   public invitations: DemoInvitation[] = [];
 
   constructor() {
-    this.seedSeatCategories('evt-001', 1800000, 1200000, 750000, 350000);
-    this.seedSeatCategories('evt-002', 2500000, 1800000, 1000000, 750000);
-    this.seedSeatCategories('evt-003', 600000, 400000, 300000, 250000);
-
-    this.generateSeatsForEvent('evt-001');
-    this.generateSeatsForEvent('evt-002');
-    this.generateSeatsForEvent('evt-003');
-
-    // Assign demo gate staff ke evt-001
+    // Assign demo staff & vendors
     this.eventStaff.push({
       id: 'evtstaff-001',
       event_id: 'evt-001',
@@ -380,7 +496,16 @@ class DataStore {
       assigned_at: new Date().toISOString(),
     });
 
-    // Seed demo payment method untuk visitor
+    this.vendors.push({
+      id: 'vendor-001',
+      event_id: 'evt-001',
+      owner_user_id: 'user-vendor-001',
+      booth_name: 'Soundwave Snack & Drinks',
+      category: 'Food & Beverage',
+      created_at: new Date().toISOString(),
+    });
+
+    // Seed payment method
     this.paymentMethods.push({
       id: 'pm-demo-001',
       user_id: 'user-visitor-001',
@@ -390,76 +515,44 @@ class DataStore {
       is_default: true,
     });
 
-    // Seed satu tiket demo untuk visitor
-    const preSeat = this.seats.find((s) => s.event_id === 'evt-001' && s.category === 'VIP');
-    if (preSeat) {
-      preSeat.status = 'sold';
-      const seed = crypto.randomBytes(16).toString('hex');
-      const ticket: DemoTicket = {
-        id: 'tkt-demo-101',
-        event_id: 'evt-001',
-        seat_id: preSeat.id,
-        user_id: 'user-visitor-001',
-        order_id: 'ord-demo-001',
-        qr_seed: seed,
-        seat_name: `${preSeat.row}-${preSeat.number}`,
-        category: preSeat.category,
-        price: preSeat.price,
-        status: 'valid',
-        issued_at: new Date(Date.now() - 86400000).toISOString(),
-      };
-      this.tickets.push(ticket);
+    // Seed one demo ticket for visitor
+    const seed = crypto.randomBytes(16).toString('hex');
+    const vipTier = this.ticketTiers.find((t) => t.id === 'tier-evt1-vip')!;
 
-      this.orders.push({
-        id: 'ord-demo-001',
-        tenant_id: 'tenant-001',
-        user_id: 'user-visitor-001',
-        event_id: 'evt-001',
-        amount: preSeat.price,
-        status: 'paid',
-        idempotency_key: 'idemp-demo-001',
-        payment_gateway: 'Dana',
-        gateway_ref: 'DANA-99201',
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        seat_ids: [preSeat.id],
-      });
-    }
-  }
+    const ticket: DemoTicket = {
+      id: 'tkt-demo-101',
+      event_id: 'evt-001',
+      tier_id: vipTier.id,
+      tier_name: vipTier.name,
+      user_id: 'user-visitor-001',
+      order_id: 'ord-demo-001',
+      qr_seed: seed,
+      price: vipTier.price,
+      status: 'valid',
+      issued_at: new Date(Date.now() - 86400000).toISOString(),
+    };
+    this.tickets.push(ticket);
 
-  private seedSeatCategories(
-    eventId: string,
-    vipPrice: number,
-    cat1Price: number,
-    cat2Price: number,
-    festivalPrice: number
-  ): void {
-    const cats: DemoSeatCategory[] = [
-      { id: `cat-${eventId}-vip`,  event_id: eventId, name: 'VIP',      price: vipPrice,      rows: ['A', 'B'],     cols: 10, color: '#7C3AED' },
-      { id: `cat-${eventId}-c1`,   event_id: eventId, name: 'CAT 1',    price: cat1Price,     rows: ['C', 'D', 'E'],cols: 12, color: '#2563EB' },
-      { id: `cat-${eventId}-c2`,   event_id: eventId, name: 'CAT 2',    price: cat2Price,     rows: ['F', 'G'],     cols: 12, color: '#059669' },
-      { id: `cat-${eventId}-fest`, event_id: eventId, name: 'FESTIVAL', price: festivalPrice, rows: ['GA'],         cols: 30, color: '#D97706' },
-    ];
-    this.seatCategories.push(...cats);
-  }
-
-  private generateSeatsForEvent(eventId: string) {
-    const categories = this.seatCategories.filter((c) => c.event_id === eventId);
-    for (const cat of categories) {
-      for (const row of cat.rows) {
-        for (let col = 1; col <= cat.cols; col++) {
-          const isSold = Math.random() < 0.15;
-          this.seats.push({
-            id: `seat-${eventId}-${row}${col}`,
-            event_id: eventId,
-            row,
-            number: col,
-            category: cat.name,
-            price: cat.price,
-            status: isSold ? 'sold' : 'available',
-          });
-        }
-      }
-    }
+    this.orders.push({
+      id: 'ord-demo-001',
+      tenant_id: 'tenant-001',
+      user_id: 'user-visitor-001',
+      event_id: 'evt-001',
+      amount: vipTier.price,
+      items: [
+        {
+          tier_id: vipTier.id,
+          tier_name: vipTier.name,
+          quantity: 1,
+          unit_price: vipTier.price,
+        },
+      ],
+      status: 'paid',
+      idempotency_key: 'idemp-demo-001',
+      payment_gateway: 'Dana',
+      gateway_ref: 'DANA-99201',
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+    });
   }
 }
 

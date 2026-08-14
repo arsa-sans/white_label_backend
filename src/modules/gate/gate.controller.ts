@@ -1,17 +1,7 @@
 /**
  * src/modules/gate/gate.controller.ts
  *
- * FASE 7 — Dynamic QR & Gate Service
- *
- * Implementasi mengikuti:
- *   - SKILLS.md § Skill 3 (Dynamic QR Code Rotation): AES-256 / HMAC rotation 30-detik
- *   - SKILLS.md § Skill 4 (Offline-First Gate Validation & Sync): pre-sync data & batch offline log sync
- *
- * Endpoints:
- *   1. validateGateScan   → POST /gate/scan (verifikasi scan < 500ms, Redis lookup + fallback)
- *   2. getPreSyncGateData → GET /gate/sync-data (pre-sync offline ticket HMAC tokens ke device)
- *   3. syncGateLogs       → POST /gate/sync (batch upload log pending saat online kembali)
- *   4. getGateStats       → GET /gate/stats (throughput & total check-in rate per event)
+ * FASE 7 — Dynamic QR & Gate Service (Tier Based)
  */
 
 import { Request, Response } from 'express';
@@ -28,10 +18,6 @@ function isRedisReady(): boolean {
   return redis.status === 'ready';
 }
 
-/**
- * Helper: Derive HMAC signature for a ticket in a given time window.
- * Formula: HMAC-SHA256(ticket_id + ":" + qr_seed + ":" + time_window, secret=QR_AES_KEY)
- */
 function deriveHmac(ticketId: string, qrSeed: string, timeWindow: number): string {
   const secret = env.QR_AES_KEY || env.JWT_SECRET || 'dev-secret';
   const hmac = crypto.createHmac('sha256', secret);
@@ -41,9 +27,6 @@ function deriveHmac(ticketId: string, qrSeed: string, timeWindow: number): strin
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /gate/scan
-// Body: { qr_token, gate_device_id }
-// Auth: authenticate (role: gate_staff, admin, organizer)
-// Target: < 500ms response time
 // ─────────────────────────────────────────────────────────────────────────────
 export async function validateGateScan(req: Request, res: Response): Promise<void> {
   const startTime = Date.now();
@@ -55,7 +38,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
   }
 
   try {
-    // 1. Decode payload base64url
     const decodedStr = Buffer.from(qr_token, 'base64url').toString('utf-8');
     const payload = JSON.parse(decodedStr) as { tkt?: string; evt?: string; w?: number; sig?: string };
     const { tkt, w, sig } = payload;
@@ -71,7 +53,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       return;
     }
 
-    // 2. Check time window freshness (±1 window tolerance = 30s drift)
     const nowSec = Math.floor(Date.now() / 1000);
     const currentWindow = Math.floor(nowSec / QR_WINDOW_SEC);
 
@@ -87,7 +68,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       return;
     }
 
-    // 3. Fast lookup: try Redis ticket cache first, fallback to dataStore
     let ticket = dataStore.tickets.find((t) => t.id === tkt);
     if (!ticket && isRedisReady()) {
       const cached = await redis.get(`ticket:${tkt}`).catch(() => null);
@@ -107,7 +87,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       return;
     }
 
-    // 4. Verify HMAC signature
     const expectedSig = deriveHmac(ticket.id, ticket.qr_seed, w);
     if (sig !== expectedSig && sig !== expectedSig.substring(0, 16)) {
       res.json(
@@ -121,7 +100,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       return;
     }
 
-    // 5. Check duplicate (already used)
     if (ticket.status === 'used') {
       const scanLog = {
         id: `scan-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
@@ -137,8 +115,8 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
         ApiResponse.success({
           result: 'duplicate',
           ticket_id: ticket.id,
-          seat_name: ticket.seat_name,
-          category: ticket.category,
+          seat_name: ticket.tier_name,
+          category: ticket.tier_name,
           message: 'TICKET ALREADY USED FOR ENTRY',
           processing_time_ms: Date.now() - startTime,
         })
@@ -158,7 +136,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       return;
     }
 
-    // 6. Success! Mark ticket used and append scan log
     ticket.status = 'used';
 
     const scanLog = {
@@ -177,8 +154,8 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       ApiResponse.success({
         result: 'valid',
         ticket_id: ticket.id,
-        seat_name: ticket.seat_name,
-        category: ticket.category,
+        seat_name: ticket.tier_name,
+        category: ticket.tier_name,
         event_name: event?.name || ticket.event_id,
         message: 'ENTRY GRANTED - VALID TICKET',
         processing_time_ms: Date.now() - startTime,
@@ -197,9 +174,6 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /gate/sync-data
-// Query: event_id
-// Auth: authenticate (role: gate_staff, admin, organizer)
-// SKILLS.md § Skill 4: Pre-sync data for offline-first gate validation
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getPreSyncGateData(req: Request, res: Response): Promise<void> {
   const event_id = (req.query.event_id as string) || 'evt-001';
@@ -211,15 +185,14 @@ export async function getPreSyncGateData(req: Request, res: Response): Promise<v
   const nowSec = Math.floor(Date.now() / 1000);
   const currentWindow = Math.floor(nowSec / QR_WINDOW_SEC);
 
-  // Pre-calculate HMAC tokens for next 10 windows (5 minutes ahead)
   const items = validTickets.map((t) => {
     const windows = [currentWindow - 1, currentWindow, currentWindow + 1, currentWindow + 2];
     const tokens = windows.map((w) => deriveHmac(t.id, t.qr_seed, w));
 
     return {
       ticket_id: t.id,
-      seat_name: t.seat_name,
-      category: t.category,
+      seat_name: t.tier_name,
+      category: t.tier_name,
       status: t.status,
       tokens,
     };
@@ -241,9 +214,6 @@ export async function getPreSyncGateData(req: Request, res: Response): Promise<v
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /gate/sync
-// Body: { logs: Array<{ id, ticket_id, gate_device_id, scanned_at, result }> }
-// Auth: authenticate
-// SKILLS.md § Skill 4: Batch upload pending scan logs with duplicate reconciliation
 // ─────────────────────────────────────────────────────────────────────────────
 export async function syncGateLogs(req: Request, res: Response): Promise<void> {
   const { logs } = req.body;
@@ -259,10 +229,8 @@ export async function syncGateLogs(req: Request, res: Response): Promise<void> {
   for (const log of logs) {
     const ticket = dataStore.tickets.find((t) => t.id === log.ticket_id);
 
-    // Reconcile status
     if (ticket) {
       if (ticket.status === 'used' && log.result === 'valid') {
-        // Double scan conflict detected during offline period
         conflictCount++;
         dataStore.gateScanLogs.push({
           id: log.id || `sync-conflict-${Date.now()}-${Math.random()}`,
@@ -302,8 +270,6 @@ export async function syncGateLogs(req: Request, res: Response): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /gate/stats
-// Query: event_id
-// Auth: authenticate (role: gate_staff, admin, organizer)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getGateStats(req: Request, res: Response): Promise<void> {
   const event_id = (req.query.event_id as string) || 'evt-001';

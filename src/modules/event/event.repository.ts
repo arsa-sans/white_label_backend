@@ -1,4 +1,4 @@
-import { dataStore, DemoEvent, DemoSeatCategory } from '../../database/dataStore';
+import { dataStore, DemoEvent, DemoTicketTier } from '../../database/dataStore';
 
 export class EventRepository {
   findPublicByTenant(tenantId: string) {
@@ -25,36 +25,19 @@ export class EventRepository {
     if (event) event.status = 'deleted';
   }
 
-  getSeatsByEventId(eventId: string) {
-    return dataStore.seats.filter((s) => s.event_id === eventId);
+  getTiersByEventId(eventId: string): DemoTicketTier[] {
+    return dataStore.ticketTiers.filter((t) => t.event_id === eventId);
   }
 
-  getCategoriesByEventId(eventId: string): DemoSeatCategory[] {
-    return dataStore.seatCategories.filter((c) => c.event_id === eventId);
+  addTier(tier: DemoTicketTier): void {
+    dataStore.ticketTiers.push(tier);
   }
 
-  addCategory(category: DemoSeatCategory): void {
-    dataStore.seatCategories.push(category);
-  }
-
-  removeCategoryById(catId: string): boolean {
-    const idx = dataStore.seatCategories.findIndex((c) => c.id === catId);
+  removeTierById(tierId: string): boolean {
+    const idx = dataStore.ticketTiers.findIndex((t) => t.id === tierId);
     if (idx === -1) return false;
-    dataStore.seatCategories.splice(idx, 1);
+    dataStore.ticketTiers.splice(idx, 1);
     return true;
-  }
-
-  expireLockedSeats(eventId: string): void {
-    const now = Date.now();
-    dataStore.seats.forEach((seat) => {
-      if (seat.event_id === eventId && seat.status === 'locked' && seat.locked_until) {
-        if (new Date(seat.locked_until).getTime() < now) {
-          seat.status = 'available';
-          seat.locked_until = undefined;
-          seat.locked_by_user_id = undefined;
-        }
-      }
-    });
   }
 }
 
