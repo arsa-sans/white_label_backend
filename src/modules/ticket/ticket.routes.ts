@@ -6,10 +6,12 @@
  * Endpoints:
  *   GET  /tickets/my-tickets       — daftar tiket milik user login
  *   GET  /tickets/:id/qr-token     — dynamic QR token (30-detik rotation)
+ *   (Queue routes are also mounted here for backwards-compatibility with frontend)
  */
 
 import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requireRole } from '../../middlewares/rbac.middleware';
 import {
   getMyTickets,
   getDynamicQrToken,
@@ -18,12 +20,11 @@ import {
   joinQueue,
   getQueueStatus,
   admitQueue,
-} from './queue.controller';
-import { requireRole } from '../../middlewares/rbac.middleware';
+} from '../queue/queue.controller';
 
 const router = Router();
 
-// Virtual Waiting Room — FASE 6
+// Virtual Waiting Room — FASE 6 (legacy mount)
 router.post('/queue/join', authenticate, joinQueue);
 router.get('/queue/status', authenticate, getQueueStatus);
 router.post('/queue/admit', authenticate, requireRole(['organizer', 'admin', 'superadmin']), admitQueue);

@@ -19,7 +19,6 @@
   "dependencies": {
     "amqplib": "^2.0.1",
     "argon2": "^0.45.1",
-    "aws-sdk": "^2.1693.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -31,7 +30,6 @@
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "mysql2": "^3.23.2",
-    "qrcode": "^1.5.4",
     "sequelize": "^6.37.8",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"

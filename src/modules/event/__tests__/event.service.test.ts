@@ -1,7 +1,7 @@
 import request from 'supertest';
-import app from '../../app';
+import app from '../../../app';
 import jwt from 'jsonwebtoken';
-import { env } from '../../config/env';
+import { env } from '../../../config/env';
 
 function generateTestToken(role = 'organizer', userId = 'user-organizer-001', tenantId = 'tenant-001') {
   return jwt.sign(

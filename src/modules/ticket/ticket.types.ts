@@ -1,3 +1,5 @@
+import { DemoTicket } from '../../database/dataStore';
+
 export interface LockSeatDto {
   event_id: string;
   seat_id: string;
@@ -8,24 +10,14 @@ export interface ReleaseSeatDto {
   seat_id: string;
 }
 
-export interface EnrichedTicket {
-  id: string;
-  event_id: string;
-  seat_id: string;
-  user_id: string;
-  order_id: string;
-  qr_seed: string;
-  seat_name: string;
-  category: string;
-  price: number;
-  status: 'valid' | 'used' | 'void' | 'refunded';
-  issued_at: string;
+export interface EnrichedTicket extends DemoTicket {
   event_name?: string;
   event_date?: string;
   event_end_date?: string;
   location?: string;
   venue_name?: string;
   banner_url?: string;
+  seat_name?: string;
 }
 
 export interface QrTokenResult {

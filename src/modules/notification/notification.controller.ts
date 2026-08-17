@@ -1,97 +1,29 @@
 /**
  * src/modules/notification/notification.controller.ts
  *
- * FASE 9 — Notification Service
- *
- * Dispatcher & Management endpoints:
- *   1. getMyNotifications → GET /notifications/my (list user notifications)
- *   2. sendNotification    → POST /notifications/send (manual notification broadcast by organizer/admin)
- *   3. markAsRead          → PUT /notifications/:id/read
- *   4. dispatchNotification → internal helper called by RabbitMQ consumer & controllers
+ * FASE 9 — Notification Controller
  */
 
 import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/apiResponse';
-import { logger } from '../../utils/logger';
+import { notificationService } from './notification.service';
+import { DispatchNotificationDto, NotificationItem } from './notification.types';
 
-export interface NotificationItem {
-  id: string;
-  user_id: string;
-  tenant_id: string;
-  title: string;
-  message: string;
-  type: 'email' | 'whatsapp' | 'push' | 'in_app';
-  read: boolean;
-  created_at: string;
-  metadata?: any;
+export function dispatchNotification(params: DispatchNotificationDto): NotificationItem {
+  return notificationService.dispatchNotification(params);
 }
 
-// In-Memory Notification Store (Dev mode)
-export const notificationStore: NotificationItem[] = [
-  {
-    id: 'notif-demo-1',
-    user_id: 'user-visitor-1',
-    tenant_id: 'tenant-001',
-    title: 'Selamat Datang di Soundwave Festival! 🎵',
-    message: 'Tiket Anda sudah terbit. Pastikan membaca panduan gate check-in sebelum hadir di venue.',
-    type: 'in_app',
-    read: false,
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-];
-
-export function dispatchNotification(params: {
-  userId: string;
-  tenantId: string;
-  title: string;
-  message: string;
-  type: 'email' | 'whatsapp' | 'push' | 'in_app';
-  metadata?: any;
-}): NotificationItem {
-  const item: NotificationItem = {
-    id: `notif-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
-    user_id: params.userId,
-    tenant_id: params.tenantId,
-    title: params.title,
-    message: params.message,
-    type: params.type,
-    read: false,
-    created_at: new Date().toISOString(),
-    metadata: params.metadata,
-  };
-
-  notificationStore.unshift(item);
-
-  logger.info(`[Notification] Dispatched [${params.type.toUpperCase()}] to user ${params.userId}: "${params.title}"`);
-  return item;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /notifications/my
-// Auth: authenticate
-// ─────────────────────────────────────────────────────────────────────────────
 export async function getMyNotifications(req: Request, res: Response): Promise<void> {
   const userId = req.user?.userId;
-  const userNotifs = notificationStore.filter((n) => n.user_id === userId || n.user_id === 'all');
+  if (!userId) {
+    res.status(401).json(ApiResponse.error('Unauthorized', 401));
+    return;
+  }
 
-  const unreadCount = userNotifs.filter((n) => !n.read).length;
-
-  res.json(
-    ApiResponse.success(
-      {
-        notifications: userNotifs,
-        unread_count: unreadCount,
-      },
-      'User notifications retrieved'
-    )
-  );
+  const result = notificationService.getMyNotifications(userId);
+  res.json(ApiResponse.success(result, 'User notifications retrieved'));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /notifications/send
-// Body: { target_user_id?, title, message, type? }
-// Auth: requireRole(['organizer', 'admin', 'superadmin'])
-// ─────────────────────────────────────────────────────────────────────────────
 export async function sendNotification(req: Request, res: Response): Promise<void> {
   const { target_user_id = 'all', title, message, type = 'in_app', metadata } = req.body;
 
@@ -100,7 +32,7 @@ export async function sendNotification(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const notif = dispatchNotification({
+  const notif = notificationService.dispatchNotification({
     userId: target_user_id,
     tenantId: req.user?.tenantId || 'tenant-001',
     title,
@@ -109,25 +41,17 @@ export async function sendNotification(req: Request, res: Response): Promise<voi
     metadata,
   });
 
-  res.json(
-    ApiResponse.success(notif, 'Notification dispatched successfully')
-  );
+  res.json(ApiResponse.success(notif, 'Notification dispatched successfully'));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT /notifications/:id/read
-// Auth: authenticate
-// ─────────────────────────────────────────────────────────────────────────────
 export async function markAsRead(req: Request, res: Response): Promise<void> {
-  const { id } = req.params;
-  const notif = notificationStore.find((n) => n.id === id);
+  const id = req.params.id as string;
+  const result = notificationService.markAsRead(id);
 
-  if (!notif) {
-    res.status(404).json(ApiResponse.error('Notification not found', 404));
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Error updating notification', result.status));
     return;
   }
 
-  notif.read = true;
-
-  res.json(ApiResponse.success(notif, 'Notification marked as read'));
+  res.json(ApiResponse.success(result.data, 'Notification marked as read'));
 }

@@ -1,35 +1,14 @@
 /**
  * src/modules/gate/gate.controller.ts
  *
- * FASE 7 — Dynamic QR & Gate Service (Tier Based)
+ * FASE 7 — Dynamic QR & Gate Controller
  */
 
 import { Request, Response } from 'express';
-import crypto from 'crypto';
-import { dataStore } from '../../database/dataStore';
 import { ApiResponse } from '../../utils/apiResponse';
-import { env } from '../../config/env';
-import { redis } from '../../config/redis';
-import { logger } from '../../utils/logger';
+import { gateService } from './gate.service';
 
-const QR_WINDOW_SEC = 30;
-
-function isRedisReady(): boolean {
-  return redis.status === 'ready';
-}
-
-function deriveHmac(ticketId: string, qrSeed: string, timeWindow: number): string {
-  const secret = env.QR_AES_KEY || env.JWT_SECRET || 'dev-secret';
-  const hmac = crypto.createHmac('sha256', secret);
-  hmac.update(`${ticketId}:${qrSeed}:${timeWindow}`);
-  return hmac.digest('hex').substring(0, 32);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /gate/scan
-// ─────────────────────────────────────────────────────────────────────────────
 export async function validateGateScan(req: Request, res: Response): Promise<void> {
-  const startTime = Date.now();
   const { qr_token, gate_device_id = 'GATE-WEB-01' } = req.body;
 
   if (!qr_token) {
@@ -37,184 +16,19 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
     return;
   }
 
-  try {
-    const decodedStr = Buffer.from(qr_token, 'base64url').toString('utf-8');
-    const payload = JSON.parse(decodedStr) as { tkt?: string; evt?: string; w?: number; sig?: string };
-    const { tkt, w, sig } = payload;
-
-    if (!tkt || w === undefined || !sig) {
-      res.json(
-        ApiResponse.success({
-          result: 'invalid',
-          message: 'Malformed QR payload format',
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const currentWindow = Math.floor(nowSec / QR_WINDOW_SEC);
-
-    if (Math.abs(currentWindow - w) > 1) {
-      res.json(
-        ApiResponse.success({
-          result: 'expired',
-          ticket_id: tkt,
-          message: 'Dynamic QR token has expired. Request visitor to refresh screen.',
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    let ticket = dataStore.tickets.find((t) => t.id === tkt);
-    if (!ticket && isRedisReady()) {
-      const cached = await redis.get(`ticket:${tkt}`).catch(() => null);
-      if (cached) {
-        ticket = JSON.parse(cached);
-      }
-    }
-
-    if (!ticket) {
-      res.json(
-        ApiResponse.success({
-          result: 'invalid',
-          message: `Ticket '${tkt}' not found in database`,
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    const expectedSig = deriveHmac(ticket.id, ticket.qr_seed, w);
-    if (sig !== expectedSig && sig !== expectedSig.substring(0, 16)) {
-      res.json(
-        ApiResponse.success({
-          result: 'invalid',
-          ticket_id: ticket.id,
-          message: 'Invalid QR cryptographic signature',
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    if (ticket.status === 'used') {
-      const scanLog = {
-        id: `scan-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
-        ticket_id: ticket.id,
-        gate_device_id,
-        scanned_at: new Date().toISOString(),
-        result: 'duplicate' as const,
-        staff_name: req.user?.email || 'Gate Staff',
-      };
-      dataStore.gateScanLogs.push(scanLog);
-
-      res.json(
-        ApiResponse.success({
-          result: 'duplicate',
-          ticket_id: ticket.id,
-          seat_name: ticket.tier_name,
-          category: ticket.tier_name,
-          message: 'TICKET ALREADY USED FOR ENTRY',
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    if (ticket.status !== 'valid') {
-      res.json(
-        ApiResponse.success({
-          result: 'invalid',
-          ticket_id: ticket.id,
-          message: `Ticket status is '${ticket.status.toUpperCase()}'`,
-          processing_time_ms: Date.now() - startTime,
-        })
-      );
-      return;
-    }
-
-    ticket.status = 'used';
-
-    const scanLog = {
-      id: `scan-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
-      ticket_id: ticket.id,
-      gate_device_id,
-      scanned_at: new Date().toISOString(),
-      result: 'valid' as const,
-      staff_name: req.user?.email || 'Gate Staff',
-    };
-    dataStore.gateScanLogs.push(scanLog);
-
-    const event = dataStore.events.find((e) => e.id === ticket.event_id);
-
-    res.json(
-      ApiResponse.success({
-        result: 'valid',
-        ticket_id: ticket.id,
-        seat_name: ticket.tier_name,
-        category: ticket.tier_name,
-        event_name: event?.name || ticket.event_id,
-        message: 'ENTRY GRANTED - VALID TICKET',
-        processing_time_ms: Date.now() - startTime,
-      })
-    );
-  } catch (err) {
-    res.json(
-      ApiResponse.success({
-        result: 'invalid',
-        message: 'Malformed or unreadable QR payload string',
-        processing_time_ms: Date.now() - startTime,
-      })
-    );
-  }
+  const result = await gateService.validateGateScan(qr_token, gate_device_id, req.user?.email);
+  res.json(ApiResponse.success(result));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /gate/sync-data
-// ─────────────────────────────────────────────────────────────────────────────
 export async function getPreSyncGateData(req: Request, res: Response): Promise<void> {
   const event_id = (req.query.event_id as string) || 'evt-001';
-
-  const validTickets = dataStore.tickets.filter(
-    (t) => t.event_id === event_id && (t.status === 'valid' || t.status === 'used')
-  );
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const currentWindow = Math.floor(nowSec / QR_WINDOW_SEC);
-
-  const items = validTickets.map((t) => {
-    const windows = [currentWindow - 1, currentWindow, currentWindow + 1, currentWindow + 2];
-    const tokens = windows.map((w) => deriveHmac(t.id, t.qr_seed, w));
-
-    return {
-      ticket_id: t.id,
-      seat_name: t.tier_name,
-      category: t.tier_name,
-      status: t.status,
-      tokens,
-    };
-  });
+  const data = gateService.getPreSyncGateData(event_id);
 
   res.json(
-    ApiResponse.success(
-      {
-        event_id,
-        synced_at: new Date().toISOString(),
-        total_tickets: items.length,
-        current_window: currentWindow,
-        tickets: items,
-      },
-      'Offline gate pre-sync dataset retrieved successfully'
-    )
+    ApiResponse.success(data, 'Offline gate pre-sync dataset retrieved successfully')
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /gate/sync
-// ─────────────────────────────────────────────────────────────────────────────
 export async function syncGateLogs(req: Request, res: Response): Promise<void> {
   const { logs } = req.body;
 
@@ -223,80 +37,18 @@ export async function syncGateLogs(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  let syncedCount = 0;
-  let conflictCount = 0;
-
-  for (const log of logs) {
-    const ticket = dataStore.tickets.find((t) => t.id === log.ticket_id);
-
-    if (ticket) {
-      if (ticket.status === 'used' && log.result === 'valid') {
-        conflictCount++;
-        dataStore.gateScanLogs.push({
-          id: log.id || `sync-conflict-${Date.now()}-${Math.random()}`,
-          ticket_id: log.ticket_id,
-          gate_device_id: log.gate_device_id || 'OFFLINE-DEVICE',
-          scanned_at: log.scanned_at || new Date().toISOString(),
-          result: 'duplicate',
-          staff_name: 'Offline Sync Reconciler',
-        });
-        continue;
-      }
-      if (log.result === 'valid') {
-        ticket.status = 'used';
-      }
-    }
-
-    dataStore.gateScanLogs.push({
-      id: log.id || `sync-${Date.now()}-${Math.random()}`,
-      ticket_id: log.ticket_id,
-      gate_device_id: log.gate_device_id || 'OFFLINE-DEVICE',
-      scanned_at: log.scanned_at || new Date().toISOString(),
-      result: log.result || 'valid',
-      staff_name: 'Offline Sync Agent',
-    });
-    syncedCount++;
-  }
-
-  logger.info(`[Gate] Synced ${syncedCount} scan log(s) with ${conflictCount} conflict(s)`);
-
+  const result = gateService.syncGateLogs(logs);
   res.json(
     ApiResponse.success(
-      { synced_count: syncedCount, conflict_count: conflictCount },
-      `${syncedCount} gate scan logs synchronized (${conflictCount} conflict(s) flagged)`
+      result,
+      `${result.synced_count} gate scan logs synchronized (${result.conflict_count} conflict(s) flagged)`
     )
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /gate/stats
-// ─────────────────────────────────────────────────────────────────────────────
 export async function getGateStats(req: Request, res: Response): Promise<void> {
   const event_id = (req.query.event_id as string) || 'evt-001';
+  const stats = gateService.getGateStats(event_id);
 
-  const eventTickets = dataStore.tickets.filter((t) => t.event_id === event_id);
-  const totalIssued = eventTickets.length;
-  const totalCheckedIn = eventTickets.filter((t) => t.status === 'used').length;
-  const checkInRate = totalIssued > 0 ? ((totalCheckedIn / totalIssued) * 100).toFixed(1) : '0';
-
-  const scanLogs = dataStore.gateScanLogs;
-  const validScans = scanLogs.filter((l) => l.result === 'valid').length;
-  const duplicateScans = scanLogs.filter((l) => l.result === 'duplicate').length;
-  const invalidScans = scanLogs.filter((l) => l.result === 'invalid').length;
-
-  res.json(
-    ApiResponse.success(
-      {
-        event_id,
-        total_issued_tickets: totalIssued,
-        total_checked_in: totalCheckedIn,
-        check_in_percentage: `${checkInRate}%`,
-        valid_scans: validScans,
-        duplicate_attempts: duplicateScans,
-        invalid_scans: invalidScans,
-        active_gate_devices: Array.from(new Set(scanLogs.map((l) => l.gate_device_id))),
-      },
-      'Gate check-in statistics retrieved'
-    )
-  );
+  res.json(ApiResponse.success(stats, 'Gate check-in statistics retrieved'));
 }

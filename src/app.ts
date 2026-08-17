@@ -16,6 +16,7 @@ import cashlessRoutes from './modules/cashless/cashless.routes';
 import gateRoutes from './modules/gate/gate.routes';
 import notificationRoutes from './modules/notification/notification.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
+import queueRoutes from './modules/queue/queue.routes';
 
 const app: Application = express();
 
@@ -80,6 +81,7 @@ apiRouter.use('/cashless', cashlessRoutes);
 apiRouter.use('/gate', gateRoutes);
 apiRouter.use('/notifications', notificationRoutes);
 apiRouter.use('/analytics', analyticsRoutes);
+apiRouter.use('/queue', queueRoutes);
 
 app.use('/api/v1', apiRouter);
 
