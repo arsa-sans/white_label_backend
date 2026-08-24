@@ -292,3 +292,64 @@ export async function removeEventStaff(req: Request, res: Response): Promise<voi
 
   res.json(ApiResponse.success({ event_id: eventId, user_id: userId }, 'Staff berhasil dihapus dari event'));
 }
+
+/* ─── multi-day sessions management ───────────────────────── */
+
+export async function listEventSessions(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const sessions = eventService.listEventSessions(eventId);
+  res.json(ApiResponse.success(sessions, 'Daftar sesi event berhasil dimuat'));
+}
+
+export async function createEventSession(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const { name, date, start_time, end_time, description, sort_order } = req.body;
+
+  if (!name || !date || !start_time || !end_time) {
+    res.status(400).json(ApiResponse.error('name, date, start_time, dan end_time wajib diisi', 400));
+    return;
+  }
+
+  const result = eventService.createEventSession(eventId, {
+    name,
+    date,
+    start_time,
+    end_time,
+    description,
+    sort_order: sort_order ? Number(sort_order) : undefined,
+  });
+
+  if (result.status !== 201) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal membuat sesi event', result.status));
+    return;
+  }
+
+  res.status(201).json(ApiResponse.success(result.data, 'Sesi event berhasil ditambahkan'));
+}
+
+export async function updateEventSession(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const sessionId = req.params.sessionId as string;
+
+  const result = eventService.updateEventSession(eventId, sessionId, req.body);
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal memperbarui sesi event', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success(result.data, 'Sesi event berhasil diperbarui'));
+}
+
+export async function deleteEventSession(req: Request, res: Response): Promise<void> {
+  const eventId = req.params.id as string;
+  const sessionId = req.params.sessionId as string;
+
+  const result = eventService.deleteEventSession(eventId, sessionId);
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal menghapus sesi event', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success({ sessionId }, 'Sesi event berhasil dihapus'));
+}
+

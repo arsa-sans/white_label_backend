@@ -1,4 +1,4 @@
-import { dataStore, DemoEvent, DemoTicketTier } from '../../database/dataStore';
+import { dataStore, DemoEvent, DemoTicketTier, DemoEventSession } from '../../database/dataStore';
 
 export class EventRepository {
   findPublicByTenant(tenantId: string) {
@@ -39,6 +39,36 @@ export class EventRepository {
     dataStore.ticketTiers.splice(idx, 1);
     return true;
   }
+
+  getSessionsByEventId(eventId: string): DemoEventSession[] {
+    return (dataStore.eventSessions || []).filter((s) => s.event_id === eventId).sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  findSessionById(sessionId: string): DemoEventSession | undefined {
+    return (dataStore.eventSessions || []).find((s) => s.id === sessionId);
+  }
+
+  addSession(session: DemoEventSession): DemoEventSession {
+    if (!dataStore.eventSessions) dataStore.eventSessions = [];
+    dataStore.eventSessions.push(session);
+    return session;
+  }
+
+  updateSession(sessionId: string, data: Partial<DemoEventSession>): DemoEventSession | null {
+    const s = this.findSessionById(sessionId);
+    if (!s) return null;
+    Object.assign(s, data);
+    return s;
+  }
+
+  removeSession(sessionId: string): boolean {
+    if (!dataStore.eventSessions) return false;
+    const idx = dataStore.eventSessions.findIndex((s) => s.id === sessionId);
+    if (idx === -1) return false;
+    dataStore.eventSessions.splice(idx, 1);
+    return true;
+  }
 }
 
 export const eventRepository = new EventRepository();
+

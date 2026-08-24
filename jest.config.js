@@ -3,4 +3,7 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+  moduleNameMapper: {
+    '^tslib$': '<rootDir>/node_modules/tslib/tslib.js',
+  },
 };

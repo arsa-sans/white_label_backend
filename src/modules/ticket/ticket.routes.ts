@@ -15,6 +15,7 @@ import { requireRole } from '../../middlewares/rbac.middleware';
 import {
   getMyTickets,
   getDynamicQrToken,
+  downloadTicketPdf,
 } from './ticket.controller';
 import {
   joinQueue,
@@ -29,8 +30,9 @@ router.post('/queue/join', authenticate, joinQueue);
 router.get('/queue/status', authenticate, getQueueStatus);
 router.post('/queue/admit', authenticate, requireRole(['organizer', 'admin', 'superadmin']), admitQueue);
 
-// Ticket retrieval
+// Ticket retrieval & PDF Export
 router.get('/my-tickets', authenticate, getMyTickets);
 router.get('/:id/qr-token', authenticate, getDynamicQrToken);
+router.get('/:id/pdf', authenticate, downloadTicketPdf);
 
 export default router;

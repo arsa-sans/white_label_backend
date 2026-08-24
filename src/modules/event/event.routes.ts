@@ -43,6 +43,10 @@ import {
   listEventStaff,
   addEventStaff,
   removeEventStaff,
+  listEventSessions,
+  createEventSession,
+  updateEventSession,
+  deleteEventSession,
 } from './event.controller';
 
 const router = Router();
@@ -50,6 +54,7 @@ const router = Router();
 /* ── public routes ───────────────────────────────────────── */
 router.get('/', listEvents);
 router.get('/:id/tiers', listTicketTiers);
+router.get('/:id/sessions', listEventSessions);
 
 /* ── admin-only ─────────────────────────────────────────── */
 router.get(
@@ -125,6 +130,28 @@ router.delete(
   authenticate,
   requireRole(['organizer', 'admin']),
   deleteTicketTier
+);
+
+/* ── session management routes ───────────────────────────── */
+router.post(
+  '/:id/sessions',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  createEventSession
+);
+
+router.put(
+  '/:id/sessions/:sessionId',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  updateEventSession
+);
+
+router.delete(
+  '/:id/sessions/:sessionId',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  deleteEventSession
 );
 
 /* ── public detail (must come after static paths above) ──── */

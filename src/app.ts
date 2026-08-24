@@ -17,6 +17,9 @@ import gateRoutes from './modules/gate/gate.routes';
 import notificationRoutes from './modules/notification/notification.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 import queueRoutes from './modules/queue/queue.routes';
+import promoRoutes from './modules/promo/promo.routes';
+import refundRoutes from './modules/refund/refund.routes';
+import adminRoutes from './modules/admin/admin.routes';
 
 const app: Application = express();
 
@@ -82,6 +85,9 @@ apiRouter.use('/gate', gateRoutes);
 apiRouter.use('/notifications', notificationRoutes);
 apiRouter.use('/analytics', analyticsRoutes);
 apiRouter.use('/queue', queueRoutes);
+apiRouter.use('/promos', promoRoutes);
+apiRouter.use('/refunds', refundRoutes);
+apiRouter.use('/admin', adminRoutes);
 
 app.use('/api/v1', apiRouter);
 

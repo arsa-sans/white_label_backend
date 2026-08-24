@@ -31,3 +31,14 @@ export interface EventListQuery {
   page?: string;
   limit?: string;
 }
+
+export interface EventSessionDto {
+  name: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  description?: string;
+  sort_order?: number;
+}
+
+export interface UpdateEventSessionDto extends Partial<EventSessionDto> {}

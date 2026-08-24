@@ -87,3 +87,56 @@ export async function updatePayoutStatus(req: Request, res: Response): Promise<v
     ApiResponse.success(result.data, `Payout status updated to '${status}' successfully`)
   );
 }
+
+import { exportService } from './export.service';
+
+export async function exportSales(req: Request, res: Response): Promise<void> {
+  const tenantId = req.tenantId || (req.user as any)?.tenant_id || 'tenant-001';
+  const eventId = req.query.event_id as string | undefined;
+
+  try {
+    const buffer = await exportService.generateSalesReport(tenantId, eventId);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="laporan-penjualan-tiket.xlsx"');
+    res.send(buffer);
+  } catch (error: any) {
+    res.status(500).json(ApiResponse.error(error.message || 'Gagal mengekspor laporan penjualan', 500));
+  }
+}
+
+export async function exportGateLogs(req: Request, res: Response): Promise<void> {
+  const tenantId = req.tenantId || (req.user as any)?.tenant_id || 'tenant-001';
+  const eventId = req.query.event_id as string | undefined;
+
+  try {
+    const buffer = await exportService.generateGateLogReport(tenantId, eventId);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="log-gate-checkin.xlsx"');
+    res.send(buffer);
+  } catch (error: any) {
+    res.status(500).json(ApiResponse.error(error.message || 'Gagal mengekspor log gate scanner', 500));
+  }
+}
+
+export async function exportBoothTransactions(req: Request, res: Response): Promise<void> {
+  const tenantId = req.tenantId || (req.user as any)?.tenant_id || 'tenant-001';
+  const eventId = req.query.event_id as string | undefined;
+
+  try {
+    const buffer = await exportService.generateBoothTransactionReport(tenantId, eventId);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="transaksi-booth-cashless.xlsx"');
+    res.send(buffer);
+  } catch (error: any) {
+    res.status(500).json(ApiResponse.error(error.message || 'Gagal mengekspor transaksi booth', 500));
+  }
+}

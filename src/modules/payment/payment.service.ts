@@ -14,6 +14,7 @@ import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { publishEvent } from '../../queue/publisher';
 import { io } from '../../server';
+import { promoService } from '../promo/promo.service';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIDTRANS_SANDBOX_SNAP_BASE = 'https://app.sandbox.midtrans.com/snap/v1';
@@ -32,6 +33,7 @@ export interface CreateOrderInput {
   payment_gateway?: string;
   customer_name?: string;
   customer_email?: string;
+  promo_code?: string;
   idempotency_key: string;
   user_id: string;
   tenant_id: string;
@@ -221,6 +223,31 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     });
   }
 
+  const grossAmount = totalAmount;
+  let finalAmount = totalAmount;
+  let discountAmount = 0;
+  let appliedPromoCode = '';
+
+  if (input.promo_code) {
+    const promoRes = await promoService.validatePromo({
+      code: input.promo_code,
+      event_id,
+      cart_total: grossAmount,
+      tenant_id,
+    });
+    if (promoRes.valid && promoRes.promo) {
+      discountAmount = promoRes.discount_amount;
+      finalAmount = promoRes.final_total;
+      appliedPromoCode = promoRes.promo.code;
+      itemDetails.push({
+        id: 'DISCOUNT',
+        price: -discountAmount,
+        quantity: 1,
+        name: `Promo: ${appliedPromoCode}`,
+      });
+    }
+  }
+
   const orderId = `ord-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
   const newOrder: DemoOrder = {
@@ -228,7 +255,10 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     tenant_id,
     user_id,
     event_id,
-    amount: totalAmount,
+    amount: finalAmount,
+    gross_amount: grossAmount,
+    discount_amount: discountAmount,
+    promo_code: appliedPromoCode || undefined,
     items: orderItems,
     status: 'pending',
     idempotency_key,
@@ -249,7 +279,7 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     try {
       const snapResult = await createMidtransSnapToken({
         orderId,
-        grossAmount: totalAmount,
+        grossAmount: finalAmount,
         customerName: customer_name || 'Customer',
         customerEmail: customer_email || 'customer@example.com',
         itemDetails,
@@ -268,7 +298,7 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
   // Dev/fallback simulation if Snap wasn't generated
   if (!snapToken) {
     snapToken = `sim-${Buffer.from(orderId).toString('base64url')}`;
-    snapRedirectUrl = buildSimulationUrl(orderId, totalAmount);
+    snapRedirectUrl = buildSimulationUrl(orderId, finalAmount);
     newOrder.gateway_ref = `SIM-${orderId}`;
     gatewayLabel = 'simulation';
   }
@@ -277,7 +307,7 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
     order: newOrder,
     snap_token: snapToken,
     redirect_url: snapRedirectUrl,
-    amount: totalAmount,
+    amount: finalAmount,
     currency: 'IDR',
     gateway: gatewayLabel!,
     expires_at: new Date(Date.now() + ORDER_EXPIRY_MS).toISOString(),
@@ -379,6 +409,18 @@ export async function processPaymentService(
   order.status = 'paid';
   if (!order.gateway_ref || order.gateway_ref.startsWith('SIM-')) {
     order.gateway_ref = `SIM-PAID-${Date.now()}`;
+  }
+
+  // Record promo usage if discount was applied
+  if (order.promo_code && order.discount_amount && order.discount_amount > 0) {
+    const promo = dataStore.promoCodes.find(
+      (p) => p.code === order.promo_code && p.tenant_id === tenantId
+    );
+    if (promo) {
+      promoService.recordUsage(promo.id, orderId, userId, order.discount_amount).catch((err) =>
+        logger.warn('[PaymentService] Failed to record promo usage', err)
+      );
+    }
   }
 
   const issuedTickets = await issueTicketsForOrder(orderId, userId, tenantId);

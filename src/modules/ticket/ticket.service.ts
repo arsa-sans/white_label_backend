@@ -95,4 +95,17 @@ export class TicketService {
   }
 }
 
+export function generateTicketQrPayload(ticketId: string, eventId: string, qrSeed: string): string {
+  const hmac = crypto.createHmac('sha256', env.QR_AES_KEY || env.JWT_SECRET);
+  hmac.update(`${ticketId}:${qrSeed}:ticket_pass`);
+  const signature = hmac.digest('hex').substring(0, 32);
+  const payload = {
+    tkt: ticketId,
+    evt: eventId,
+    type: 'pdf_ticket',
+    sig: signature,
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
 export const ticketService = new TicketService();

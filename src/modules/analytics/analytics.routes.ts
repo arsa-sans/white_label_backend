@@ -22,6 +22,9 @@ import {
   requestPayout,
   getPayouts,
   updatePayoutStatus,
+  exportSales,
+  exportGateLogs,
+  exportBoothTransactions,
 } from './analytics.controller';
 
 const router = Router();
@@ -29,6 +32,11 @@ const router = Router();
 router.get('/dashboard', authenticate, requireRole(['organizer', 'admin', 'superadmin']), getDashboardMetrics);
 router.get('/occupancy', authenticate, getOccupancyReport);
 router.get('/gate-throughput', authenticate, requireRole(['organizer', 'admin', 'superadmin']), getGateThroughput);
+
+// Excel / Spreadsheet Export Routes
+router.get('/export/sales', authenticate, requireRole(['organizer', 'admin', 'superadmin']), exportSales);
+router.get('/export/gate-logs', authenticate, requireRole(['organizer', 'admin', 'superadmin']), exportGateLogs);
+router.get('/export/booth-transactions', authenticate, requireRole(['organizer', 'admin', 'superadmin']), exportBoothTransactions);
 
 router.post('/payouts/request', authenticate, requireRole(['organizer', 'admin', 'superadmin']), requestPayout);
 router.get('/payouts', authenticate, requireRole(['organizer', 'admin', 'superadmin']), getPayouts);

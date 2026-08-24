@@ -5,9 +5,16 @@
  */
 
 import crypto from 'crypto';
-import { dataStore, DemoEvent, DemoTicketTier } from '../../database/dataStore';
+import { dataStore, DemoEvent, DemoTicketTier, DemoEventSession } from '../../database/dataStore';
 import { eventRepository } from './event.repository';
-import { CreateEventDto, UpdateEventDto, UpsertSeatCategoryDto, EventListQuery } from './event.types';
+import {
+  CreateEventDto,
+  UpdateEventDto,
+  UpsertSeatCategoryDto,
+  EventListQuery,
+  EventSessionDto,
+  UpdateEventSessionDto,
+} from './event.types';
 
 const uuidv4 = () => crypto.randomUUID();
 
@@ -499,6 +506,58 @@ export class EventService {
 
     dataStore.eventStaff.splice(idx, 1);
     return { status: 200 };
+  }
+
+  /**
+   * Multi-Day Sessions
+   */
+  public listEventSessions(eventId: string): DemoEventSession[] {
+    return eventRepository.getSessionsByEventId(eventId);
+  }
+
+  public createEventSession(eventId: string, dto: EventSessionDto): { status: number; message?: string; data?: DemoEventSession } {
+    const event = eventRepository.findById(eventId);
+    if (!event) {
+      return { status: 404, message: 'Event tidak ditemukan' };
+    }
+
+    const session: DemoEventSession = {
+      id: `sess-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      event_id: eventId,
+      name: dto.name,
+      date: dto.date,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
+      description: dto.description || '',
+      sort_order: dto.sort_order ?? ((dataStore.eventSessions?.filter((s) => s.event_id === eventId).length || 0) + 1),
+    };
+
+    eventRepository.addSession(session);
+    return { status: 201, data: session };
+  }
+
+  public updateEventSession(
+    eventId: string,
+    sessionId: string,
+    dto: UpdateEventSessionDto
+  ): { status: number; message?: string; data?: DemoEventSession } {
+    const session = eventRepository.findSessionById(sessionId);
+    if (!session || session.event_id !== eventId) {
+      return { status: 404, message: 'Sesi event tidak ditemukan' };
+    }
+
+    const updated = eventRepository.updateSession(sessionId, dto);
+    return { status: 200, data: updated! };
+  }
+
+  public deleteEventSession(eventId: string, sessionId: string): { status: number; message?: string } {
+    const session = eventRepository.findSessionById(sessionId);
+    if (!session || session.event_id !== eventId) {
+      return { status: 404, message: 'Sesi event tidak ditemukan' };
+    }
+
+    eventRepository.removeSession(sessionId);
+    return { status: 200, message: 'Sesi berhasil dihapus' };
   }
 }
 

@@ -40,6 +40,28 @@ export async function getDynamicQrToken(req: Request, res: Response): Promise<vo
   res.json(ApiResponse.success(result.data, 'Dynamic QR token generated'));
 }
 
+import { generateTicketPdf } from './ticket-pdf.service';
+
+export async function downloadTicketPdf(req: Request, res: Response): Promise<void> {
+  const id = req.params.id as string;
+  const userId = req.user?.userId;
+  const tenantId = req.tenantId || (req.user as any)?.tenant_id || 'tenant-001';
+
+  if (!userId) {
+    res.status(401).json(ApiResponse.error('Unauthorized', 401));
+    return;
+  }
+
+  try {
+    const pdfBuffer = await generateTicketPdf(id, tenantId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ticket-${id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error: any) {
+    res.status(404).json(ApiResponse.error(error.message || 'Gagal membuat file PDF tiket', 404));
+  }
+}
+
 export async function sweepExpiredSeats(): Promise<void> {
   await ticketService.sweepExpiredSeats();
 }

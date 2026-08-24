@@ -67,6 +67,62 @@ export interface DemoTicketTier {
   sold: number;          // Jumlah tiket yang sudah terjual
   color: string;         // Warna representasi badge
   sort_order: number;    // Urutan tier (1 = paling dekat panggung)
+  session_id?: string;   // Sesi event khusus (Day 1 / Day 2)
+  is_all_day_pass?: boolean; // Berlaku untuk semua sesi
+}
+
+export interface DemoPromoCode {
+  id: string;
+  tenant_id: string;
+  event_id?: string;     // null/undefined = berlaku semua event di tenant
+  code: string;          // e.g. "DISKON20", "EARLYBIRD50K"
+  type: 'percentage' | 'fixed';
+  value: number;         // persentase (e.g. 20) atau nominal (e.g. 50000)
+  max_uses: number | null;// null = unlimited
+  used_count: number;
+  min_purchase: number;  // min nominal order
+  valid_from: string;
+  valid_until: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface DemoPromoUsageLog {
+  id: string;
+  promo_id: string;
+  order_id: string;
+  user_id: string;
+  discount_amount: number;
+  used_at: string;
+}
+
+export interface DemoRefundRequest {
+  id: string;
+  tenant_id: string;
+  order_id: string;
+  user_id: string;
+  ticket_id?: string;
+  type: 'refund' | 'reschedule';
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  refund_amount?: number;
+  target_event_id?: string;
+  target_tier_id?: string;
+  admin_notes?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  created_at: string;
+}
+
+export interface DemoEventSession {
+  id: string;
+  event_id: string;
+  name: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  description: string;
+  sort_order: number;
 }
 
 export interface DemoEvent {
@@ -133,10 +189,13 @@ export interface DemoOrder {
   event_id: string;
   amount: number;
   items: DemoOrderItem[];
-  status: 'pending' | 'paid' | 'failed' | 'expired';
+  status: 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
   idempotency_key: string;
   payment_gateway: string;
   gateway_ref?: string;
+  promo_code?: string;
+  discount_amount?: number;
+  gross_amount?: number;
   created_at: string;
 }
 
@@ -479,7 +538,84 @@ class DataStore {
   public paymentMethods: DemoPaymentMethod[] = [];
   public invitations: DemoInvitation[] = [];
 
+  /** Promo, Refund & Event Session collections */
+  public promoCodes: DemoPromoCode[] = [];
+  public promoUsageLogs: DemoPromoUsageLog[] = [];
+  public refundRequests: DemoRefundRequest[] = [];
+  public eventSessions: DemoEventSession[] = [];
+
   constructor() {
+    // Seed initial event sessions for evt-001
+    this.eventSessions.push(
+      {
+        id: 'sess-evt1-day1',
+        event_id: 'evt-001',
+        name: 'Day 1 — Rock & Electronic Odyssey',
+        date: '2026-09-15',
+        start_time: '15:00',
+        end_time: '23:00',
+        description: 'Pembukaan festival dengan headliner rock alternatif & pertunjukan visual laser panggung megah.',
+        sort_order: 1,
+      },
+      {
+        id: 'sess-evt1-day2',
+        event_id: 'evt-001',
+        name: 'Day 2 — Indie Pop & EDM Finale',
+        date: '2026-09-16',
+        start_time: '14:00',
+        end_time: '23:45',
+        description: 'Malam penutupan dengan parade artis indie nusantara dan panggung midnight EDM rave.',
+        sort_order: 2,
+      }
+    );
+
+    // Seed initial promo codes
+    this.promoCodes.push(
+      {
+        id: 'promo-001',
+        tenant_id: 'tenant-001',
+        event_id: 'evt-001',
+        code: 'DISKON20',
+        type: 'percentage',
+        value: 20, // 20% discount
+        max_uses: 100,
+        used_count: 5,
+        min_purchase: 500000,
+        valid_from: new Date(Date.now() - 86400000).toISOString(),
+        valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'promo-002',
+        tenant_id: 'tenant-001',
+        code: 'EARLYBIRD50K',
+        type: 'fixed',
+        value: 50000, // Rp 50.000 discount
+        max_uses: 50,
+        used_count: 12,
+        min_purchase: 300000,
+        valid_from: new Date(Date.now() - 86400000).toISOString(),
+        valid_until: new Date(Date.now() + 60 * 86400000).toISOString(),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'promo-003',
+        tenant_id: 'tenant-001',
+        code: 'SOUNDWAVE10',
+        type: 'percentage',
+        value: 10,
+        max_uses: null, // unlimited
+        used_count: 42,
+        min_purchase: 200000,
+        valid_from: new Date(Date.now() - 86400000).toISOString(),
+        valid_until: new Date(Date.now() + 90 * 86400000).toISOString(),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      }
+    );
+
     // Assign demo staff & vendors
     this.eventStaff.push({
       id: 'evtstaff-001',
