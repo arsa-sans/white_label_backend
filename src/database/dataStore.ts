@@ -142,6 +142,10 @@ export interface DemoEvent {
   price_min: number;
   price_max: number;
   venue_layout_info?: string; // Deskripsi/penjelasan tata letak panggung & penonton
+  guest_stars?: Array<{ name: string; photo_url: string; role: string }>;
+  venue_map_url?: string;        // Google Maps share/embed URL from organizer
+  poster_url?: string;           // Poster event (separate from banner)
+  terms_conditions?: string;     // Ticket terms & conditions
 }
 
 /** Relasi Gate Staff / Vendor ↔ Event */
@@ -378,6 +382,15 @@ class DataStore {
       price_min: 350000,
       price_max: 1800000,
       venue_layout_info: 'Panggung Utama berada di titik Utara. Area VIP berada tepat di depan panggung (jarak 0-10m), diikuti CAT 1 (10-25m), CAT 2 (25-50m), dan Zona FESTIVAL di area belakang dengan layar videotron raksasa.',
+      guest_stars: [
+        { name: 'DJ Snake', photo_url: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&h=300&fit=crop', role: 'Headliner DJ' },
+        { name: 'KSHMR', photo_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop', role: 'Main Stage DJ' },
+        { name: 'Weird Genius', photo_url: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=300&fit=crop', role: 'Local Act' },
+        { name: 'BEAUZ', photo_url: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&h=300&fit=crop', role: 'Supporting DJ' },
+      ],
+      venue_map_url: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.2904494758886!2d106.84580731476882!3d-6.225462395494824!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2e69f3f2b2b3b3b3%3A0x3030bfbcaf770b0!2sJIExpo%20Kemayoran!5e0!3m2!1sen!2sid!4v1234567890',
+      poster_url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&h=1200&fit=crop',
+      terms_conditions: 'Tiket yang sudah dibeli tidak dapat dikembalikan. E-tiket wajib ditunjukkan saat masuk venue. Dilarang membawa makanan & minuman dari luar. Anak di bawah 12 tahun wajib didampingi orang tua.',
     },
     {
       id: 'evt-002',
@@ -396,6 +409,13 @@ class DataStore {
       price_min: 750000,
       price_max: 2500000,
       venue_layout_info: 'VVIP mendapat meja paling depan panggung utama & VIP networking lounge. Premium di area tengah ballroom. Regular di bagian belakang.',
+      guest_stars: [
+        { name: 'Andrej Karpathy', photo_url: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&h=300&fit=crop', role: 'Keynote Speaker' },
+        { name: 'Lisa Su', photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&h=300&fit=crop', role: 'Industry Leader' },
+      ],
+      venue_map_url: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.521260322283!2d106.82496081476862!3d-6.198085995507567!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2e69f4017881c6a1%3A0x74d5c32158aae93!2sThe%20Ritz-Carlton%2C%20Jakarta!5e0!3m2!1sen!2sid!4v1234567890',
+      poster_url: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=1200&fit=crop',
+      terms_conditions: 'Pendaftaran bersifat final dan non-refundable. Peserta wajib hadir tepat waktu. Sertifikat digital akan dikirim via email setelah event.',
     },
     {
       id: 'evt-003',
@@ -414,6 +434,14 @@ class DataStore {
       price_min: 250000,
       price_max: 600000,
       venue_layout_info: 'Standing VIP berada di panggung utama pit depan. General Admission berada di area rumput outdoor.',
+      guest_stars: [
+        { name: 'Hindia', photo_url: 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=300&h=300&fit=crop', role: 'Headliner' },
+        { name: 'Feast', photo_url: 'https://images.unsplash.com/photo-1524368535928-5b5e00ddc76b?w=300&h=300&fit=crop', role: 'Band Utama' },
+        { name: 'Reality Club', photo_url: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=300&h=300&fit=crop', role: 'Special Guest' },
+      ],
+      venue_map_url: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.2904494758886!2d106.80580731476882!3d-6.225462395494824!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2e69f19b09b0b0b0%3A0x3030bfbcaf770b0!2sSenayan%20Park!5e0!3m2!1sen!2sid!4v1234567890',
+      poster_url: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=1200&fit=crop',
+      terms_conditions: 'Festival area outdoor, harap siapkan jas hujan. Tiket berlaku untuk 2 hari. Dilarang membawa tripod dan kamera profesional tanpa izin.',
     },
   ];
 

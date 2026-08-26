@@ -4,11 +4,16 @@ export interface CreateEventDto {
   category?: string;
   location: string;
   venue_name?: string;
+  venue_layout_info?: string;
   start_date: string;
   end_date: string;
   capacity?: number;
   banner_url?: string;
   status?: 'draft' | 'published' | 'ended';
+  guest_stars?: Array<{ name: string; photo_url: string; role: string }>;
+  venue_map_url?: string;
+  poster_url?: string;
+  terms_conditions?: string;
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {}

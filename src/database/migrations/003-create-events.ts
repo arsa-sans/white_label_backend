@@ -41,6 +41,18 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       type: DataTypes.STRING(500),
       allowNull: true,
     },
+    guest_stars: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    poster_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    terms_conditions: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
     banner_url: {
       type: DataTypes.STRING(500),
       allowNull: true,

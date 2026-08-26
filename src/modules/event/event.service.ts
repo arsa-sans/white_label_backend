@@ -170,6 +170,10 @@ export class EventService {
       status: ['draft', 'published'].includes(dto.status || '') ? dto.status! : 'draft',
       price_min: 350000,
       price_max: 1800000,
+      guest_stars: dto.guest_stars,
+      venue_map_url: dto.venue_map_url,
+      poster_url: dto.poster_url,
+      terms_conditions: dto.terms_conditions,
     };
 
     eventRepository.create(newEvent);
@@ -258,6 +262,10 @@ export class EventService {
       'capacity',
       'banner_url',
       'status',
+      'guest_stars',
+      'venue_map_url',
+      'poster_url',
+      'terms_conditions',
     ];
 
     for (const key of allowed) {

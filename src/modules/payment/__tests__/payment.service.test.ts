@@ -32,6 +32,15 @@ jest.mock('../../../server', () => ({
   },
 }));
 
+jest.mock('../../queue/queue.service', () => ({
+  queueService: {
+    isCheckoutSessionValid: jest.fn().mockResolvedValue({ valid: true }),
+    joinQueue: jest.fn(),
+    getQueueStatus: jest.fn(),
+    admitQueue: jest.fn(),
+  },
+}));
+
 import {
   createOrderService,
   issueTicketsForOrder,

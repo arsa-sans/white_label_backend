@@ -13,6 +13,8 @@ export interface JoinQueueResult {
   admitted: boolean;
   estimatedWaitSeconds?: number;
   expiresInSeconds?: number;
+  checkoutTtlSeconds?: number;
+  activeCheckouts?: number;
 }
 
 export interface QueueStatusResult {
@@ -23,4 +25,6 @@ export interface QueueStatusResult {
   admitted: boolean;
   estimatedWaitSeconds?: number;
   expiresInSeconds?: number;
+  checkoutTtlSeconds?: number;
+  checkoutExpiresAt?: string;
 }

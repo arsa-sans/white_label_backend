@@ -15,6 +15,7 @@ import { logger } from '../../utils/logger';
 import { publishEvent } from '../../queue/publisher';
 import { io } from '../../server';
 import { promoService } from '../promo/promo.service';
+import { queueService } from '../queue/queue.service';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIDTRANS_SANDBOX_SNAP_BASE = 'https://app.sandbox.midtrans.com/snap/v1';
@@ -167,6 +168,13 @@ function buildSimulationUrl(orderId: string, amount: number): string {
 // createOrderService — Business logic (Ticket Tier Based)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function createOrderService(input: CreateOrderInput): Promise<CreateOrderResult> {
+  // Validate checkout session before creating order
+  const sessionId = `sess-${input.user_id}-${input.event_id}`;
+  const sessionCheck = await queueService.isCheckoutSessionValid(input.event_id, sessionId);
+  if (!sessionCheck.valid) {
+    throw new Error('Sesi checkout telah habis. Silakan masuk antrian kembali.');
+  }
+
   const { event_id, items, seat_ids, payment_gateway, customer_name, customer_email,
           idempotency_key, user_id, tenant_id } = input;
 

@@ -39,6 +39,8 @@ export async function joinQueue(req: Request, res: Response): Promise<void> {
         admitted: result.admitted,
         estimated_wait_seconds: result.estimatedWaitSeconds,
         expires_in_seconds: result.expiresInSeconds,
+        checkout_ttl_seconds: result.checkoutTtlSeconds,
+        active_checkouts: result.activeCheckouts,
       },
       result.admitted ? 'Admitted to checkout' : 'Joined virtual queue successfully'
     )
@@ -65,8 +67,33 @@ export async function getQueueStatus(req: Request, res: Response): Promise<void>
         admitted: result.admitted,
         estimated_wait_seconds: result.estimatedWaitSeconds,
         expires_in_seconds: result.expiresInSeconds,
+        checkout_ttl_seconds: result.checkoutTtlSeconds,
+        checkout_expires_at: result.checkoutExpiresAt,
       },
       'Queue status retrieved'
+    )
+  );
+}
+
+export async function validateCheckoutSession(req: Request, res: Response): Promise<void> {
+  const event_id = req.query.event_id as string;
+  const session_id = (req.query.session_id as string) || `sess-${req.user?.userId}-${event_id}`;
+
+  if (!event_id) {
+    res.status(400).json(ApiResponse.error('event_id is required', 400));
+    return;
+  }
+
+  const result = await queueService.isCheckoutSessionValid(event_id, session_id);
+  res.json(
+    ApiResponse.success(
+      {
+        valid: result.valid,
+        remaining_seconds: result.remainingSeconds,
+        session_id,
+        event_id,
+      },
+      result.valid ? 'Checkout session is valid' : 'Checkout session expired or not found'
     )
   );
 }
