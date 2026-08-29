@@ -15,8 +15,8 @@ const server = http.createServer(app);
 // Socket.IO Server initialization for real-time virtual queue & seat lock updates
 export const io = new SocketIOServer(server, {
   cors: {
-    origin: env.CORS_ORIGIN,
-    credentials: true,
+    origin: env.isDev ? '*' : env.CORS_ORIGIN,
+    credentials: !env.isDev, // credentials not supported with wildcard origin
   },
 });
 

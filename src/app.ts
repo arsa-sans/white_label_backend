@@ -28,7 +28,12 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g., curl, Postman) and localhost dev origins
+      // Dev mode: allow all origins (mobile WiFi debugging, emulators, etc.)
+      if (env.isDev) {
+        callback(null, true);
+        return;
+      }
+      // Production: strict whitelist
       const allowed = [
         env.CORS_ORIGIN,
         'http://localhost:3000',
