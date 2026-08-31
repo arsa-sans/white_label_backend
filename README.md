@@ -1,36 +1,98 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Express.js Project
+
+Backend API built with **Express.js** and **Node.js**.
 
 ## Getting Started
 
-First, run the development server:
+First, install the project dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then, run the development server:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+bun run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The API will be available at:
+
+```text
+http://localhost:3000
+```
+
+> Pastikan port yang digunakan sesuai dengan konfigurasi pada project Anda.
+
+## Project Structure
+
+Struktur project Express.js umumnya seperti berikut:
+
+```text
+.
+├── src/
+│   ├── controllers/
+│   ├── routes/
+│   ├── middlewares/
+│   ├── models/
+│   ├── services/
+│   └── server.ts
+├── .env
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## Environment Variables
+
+Buat file `.env` di root project dan isi konfigurasi yang diperlukan.
+
+Contoh:
+
+```env
+PORT=3000
+```
+
+Jika project menggunakan database atau service lainnya, tambahkan environment variable sesuai kebutuhan.
+
+## API
+
+Setelah server berjalan, API dapat diakses melalui:
+
+```text
+http://localhost:3000
+```
+
+Contoh endpoint:
+
+```text
+GET    /api/...
+POST   /api/...
+PUT    /api/...
+DELETE /api/...
+```
+
+Sesuaikan endpoint dengan route yang tersedia di project.
+
+## Development
+
+Untuk menjalankan project dalam mode development:
+
+```bash
+bun run dev
+```
+
+Untuk menjalankan project dalam mode production:
+
+```bash
+bun run build
+bun run start
+```
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
+Dokumentasi resmi yang dapat digunakan untuk mempelajari Express.js:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+* [Express.js Documentation](https://expressjs.com/?utm_source=chatgpt.com)
+* [Node.js Documentation](https://nodejs.org/docs/latest/api/?utm_source=chatgpt.com)
+* [Bun Documentation](https://bun.com/docs?utm_source=chatgpt.com)
