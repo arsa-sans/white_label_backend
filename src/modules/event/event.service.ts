@@ -7,6 +7,9 @@
 import crypto from 'crypto';
 import { dataStore, DemoEvent, DemoTicketTier, DemoEventSession } from '../../database/dataStore';
 import { eventRepository } from './event.repository';
+import { env } from '../../config/env';
+import { logger } from '../../utils/logger';
+import { createMidtransSnapToken } from '../payment/payment.service';
 import {
   CreateEventDto,
   UpdateEventDto,
@@ -462,12 +465,112 @@ export class EventService {
     });
   }
 
+  public getStaffFeeStatus(
+    eventId: string,
+    organizerId: string,
+    role: string
+  ): { status: number; message?: string; data?: any } {
+    const event = dataStore.events.find((e) => e.id === eventId);
+    if (!event) return { status: 404, message: 'Event tidak ditemukan' };
+    if (role === 'organizer' && event.organizer_id !== organizerId) {
+      return { status: 403, message: 'Forbidden' };
+    }
+    return {
+      status: 200,
+      data: {
+        event_id: event.id,
+        event_name: event.name,
+        staff_fee_paid: Boolean(event.staff_fee_paid),
+        fee_amount: 50000,
+      },
+    };
+  }
+
+  public async createStaffFeeOrder(
+    eventId: string,
+    organizerId: string,
+    tenantId: string,
+    customerEmail?: string,
+    customerName?: string
+  ): Promise<{ status: number; message?: string; data?: any }> {
+    const event = dataStore.events.find((e) => e.id === eventId);
+    if (!event) return { status: 404, message: 'Event tidak ditemukan' };
+    if (event.organizer_id !== organizerId) return { status: 403, message: 'Forbidden' };
+    if (event.staff_fee_paid) {
+      return { status: 200, data: { already_paid: true, staff_fee_paid: true } };
+    }
+
+    const orderId = `SFEE-${eventId}-${Date.now().toString().slice(-6)}`;
+    const grossAmount = 50000;
+
+    let snapToken = `MOCK-SNAP-SFEE-${orderId}`;
+    let snapRedirectUrl = `https://app.sandbox.midtrans.com/snap/v2/vtweb/${snapToken}`;
+
+    if (env.MIDTRANS_SERVER_KEY) {
+      try {
+        const snapRes = await createMidtransSnapToken({
+          orderId,
+          grossAmount,
+          customerName: customerName || 'Organizer',
+          customerEmail: customerEmail || 'organizer@whitelabel.id',
+          itemDetails: [
+            {
+              id: 'SAAS-STAFF-FEE',
+              name: `Aktivasi Staff & Vendor - ${event.name.slice(0, 25)}`,
+              price: grossAmount,
+              quantity: 1,
+            },
+          ],
+        });
+        snapToken = snapRes.token;
+        snapRedirectUrl = snapRes.redirect_url;
+      } catch (err: any) {
+        logger.warn(`[StaffFee] Midtrans Snap creation failed: ${err.message}`);
+      }
+    }
+
+    return {
+      status: 200,
+      data: {
+        order_id: orderId,
+        event_id: event.id,
+        gross_amount: grossAmount,
+        snap_token: snapToken,
+        redirect_url: snapRedirectUrl,
+      },
+    };
+  }
+
+  public confirmStaffFee(
+    eventId: string,
+    organizerId: string
+  ): { status: number; message?: string; data?: any } {
+    const event = dataStore.events.find((e) => e.id === eventId);
+    if (!event) return { status: 404, message: 'Event tidak ditemukan' };
+    if (event.organizer_id !== organizerId) return { status: 403, message: 'Forbidden' };
+    event.staff_fee_paid = true;
+    return { status: 200, data: { event_id: event.id, staff_fee_paid: true } };
+  }
+
   public addEventStaff(
     eventId: string,
     tenantId: string,
     organizerId: string,
     data: { name: string; email: string; password: string; role?: string }
   ): { status: number; message?: string; data?: any } {
+    const event = dataStore.events.find((e) => e.id === eventId);
+    if (!event) {
+      return { status: 404, message: 'Event tidak ditemukan' };
+    }
+
+    if (!event.staff_fee_paid) {
+      return {
+        status: 402,
+        message:
+          'Pembayaran aktivasi penugasan staff (SaaS Event Staff Fee) diperlukan sebelum menambahkan Gate Staff atau Vendor untuk event ini.',
+      };
+    }
+
     const { name, email, password, role = 'gate_staff' } = data;
 
     let user = dataStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());

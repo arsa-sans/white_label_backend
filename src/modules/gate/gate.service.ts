@@ -54,15 +54,6 @@ export class GateService {
       const nowSec = Math.floor(Date.now() / 1000);
       const currentWindow = Math.floor(nowSec / QR_WINDOW_SEC);
 
-      if (Math.abs(currentWindow - w) > 1) {
-        return {
-          result: 'expired',
-          ticket_id: tkt,
-          message: 'Dynamic QR token has expired. Request visitor to refresh screen.',
-          processing_time_ms: Date.now() - startTime,
-        };
-      }
-
       let ticket = gateRepository.findTicketById(tkt);
       if (!ticket && isRedisReady()) {
         const cached = await redis.get(`ticket:${tkt}`).catch(() => null);
@@ -71,10 +62,36 @@ export class GateService {
         }
       }
 
+      const scanTime = new Date().toISOString();
+      const owner = ticket ? dataStore.users.find((u) => u.id === ticket!.user_id) : undefined;
+      const event = ticket ? gateRepository.getEventById(ticket.event_id) : undefined;
+
+      const baseDetails = {
+        ticket_id: ticket?.id || tkt,
+        seat_name: ticket?.tier_name,
+        category: ticket?.tier_name,
+        tier_name: ticket?.tier_name,
+        event_name: event?.name || (ticket ? ticket.event_id : undefined),
+        ticket_owner_name: owner?.name || 'Pengunjung',
+        ticket_owner_email: owner?.email || '',
+        scanned_at: scanTime,
+      };
+
+      if (Math.abs(currentWindow - w) > 1) {
+        return {
+          result: 'expired',
+          ...baseDetails,
+          message: 'Dynamic QR token telah kedaluwarsa. Minta pengunjung untuk refresh halaman.',
+          processing_time_ms: Date.now() - startTime,
+        };
+      }
+
       if (!ticket) {
         return {
           result: 'invalid',
-          message: `Ticket '${tkt}' not found in database`,
+          ticket_id: tkt,
+          scanned_at: scanTime,
+          message: `Tiket '${tkt}' tidak ditemukan di database.`,
           processing_time_ms: Date.now() - startTime,
         };
       }
@@ -87,7 +104,7 @@ export class GateService {
         if (!isAssigned) {
           return {
             result: 'invalid',
-            ticket_id: ticket.id,
+            ...baseDetails,
             message: 'Anda tidak ditugaskan untuk menjaga event ini.',
             processing_time_ms: Date.now() - startTime,
           };
@@ -98,15 +115,11 @@ export class GateService {
       if (sig !== expectedSig && sig !== expectedSig.substring(0, 16)) {
         return {
           result: 'invalid',
-          ticket_id: ticket.id,
-          message: 'Invalid QR cryptographic signature',
+          ...baseDetails,
+          message: 'QR signature tidak valid (indikasi manipulasi / palsu).',
           processing_time_ms: Date.now() - startTime,
         };
       }
-
-      const owner = dataStore.users.find((u) => u.id === ticket!.user_id);
-      const event = gateRepository.getEventById(ticket.event_id);
-      const scanTime = new Date().toISOString();
 
       if (ticket.status === 'used') {
         const scanLog: DemoGateScanLog = {
@@ -121,15 +134,8 @@ export class GateService {
 
         return {
           result: 'duplicate',
-          ticket_id: ticket.id,
-          seat_name: ticket.tier_name,
-          category: ticket.tier_name,
-          tier_name: ticket.tier_name,
-          event_name: event?.name || ticket.event_id,
-          ticket_owner_name: owner?.name || 'Pengunjung',
-          ticket_owner_email: owner?.email || '',
-          scanned_at: scanTime,
-          message: 'TICKET ALREADY USED FOR ENTRY',
+          ...baseDetails,
+          message: 'TIKET SUDAH PERNAH DIGUNAKAN (DUPLICATE SCAN)',
           processing_time_ms: Date.now() - startTime,
         };
       }
@@ -137,8 +143,8 @@ export class GateService {
       if (ticket.status !== 'valid') {
         return {
           result: 'invalid',
-          ticket_id: ticket.id,
-          message: `Ticket status is '${ticket.status.toUpperCase()}'`,
+          ...baseDetails,
+          message: `Status tiket saat ini: '${ticket.status.toUpperCase()}'`,
           processing_time_ms: Date.now() - startTime,
         };
       }

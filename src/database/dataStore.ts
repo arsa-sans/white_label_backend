@@ -149,6 +149,8 @@ export interface DemoEvent {
   /** Sale schedule — kapan penjualan tiket dimulai & ditutup */
   sale_start_at?: string;        // ISO datetime — penjualan tiket dimulai
   sale_end_at?: string;          // ISO datetime — penjualan tiket ditutup
+  /** SaaS Event Staff & Vendor Feature Activation Fee */
+  staff_fee_paid?: boolean;      // True jika organizer sudah membayar biaya aktivasi staff untuk event ini
 }
 
 /** Relasi Gate Staff / Vendor ↔ Event */

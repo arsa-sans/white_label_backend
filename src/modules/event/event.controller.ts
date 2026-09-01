@@ -368,3 +368,51 @@ export async function deleteEventSession(req: Request, res: Response): Promise<v
   res.json(ApiResponse.success({ sessionId }, 'Sesi event berhasil dihapus'));
 }
 
+// ─── SaaS Event Staff Fee (Midtrans) ──────────────────────────────────────────
+
+export async function getStaffFeeStatus(req: Request, res: Response): Promise<void> {
+  const actor = req.user as JwtPayload;
+  const eventId = req.params.id as string;
+
+  const result = eventService.getStaffFeeStatus(eventId, actor.userId, actor.role);
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal memeriksa status fee staff', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success(result.data));
+}
+
+export async function createStaffFeeOrder(req: Request, res: Response): Promise<void> {
+  const actor = req.user as JwtPayload;
+  const eventId = req.params.id as string;
+
+  const result = await eventService.createStaffFeeOrder(
+    eventId,
+    actor.userId,
+    actor.tenantId,
+    actor.email,
+    (actor as any).name || 'Organizer'
+  );
+
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal membuat order aktivasi staff', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success(result.data, 'Order aktivasi staff berhasil dibuat'));
+}
+
+export async function confirmStaffFee(req: Request, res: Response): Promise<void> {
+  const actor = req.user as JwtPayload;
+  const eventId = req.params.id as string;
+
+  const result = eventService.confirmStaffFee(eventId, actor.userId);
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal mengonfirmasi aktivasi staff', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success(result.data, 'Aktivasi penugasan staff event berhasil diaktifkan'));
+}
+

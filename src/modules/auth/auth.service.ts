@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { env } from '../../config/env';
 import { DemoUser, UserRole, dataStore } from '../../database/dataStore';
+import { sendOrganizerApprovalEmail } from '../../utils/mailer';
 
 export interface AuthResult {
   token: string;
@@ -345,6 +346,9 @@ export class AuthService {
     }
 
     user.approval_status = action;
+    if (action === 'approved') {
+      sendOrganizerApprovalEmail(user.email, user.name, user.company_name).catch(() => {});
+    }
     return { id: user.id, approval_status: user.approval_status };
   }
 

@@ -72,6 +72,7 @@ export async function createOrder(req: Request, res: Response): Promise<void> {
       payment_gateway: req.body.payment_gateway,
       customer_name: req.body.customer_name || req.user?.email,
       customer_email: req.body.customer_email || req.user?.email,
+      promo_code: req.body.promo_code,
       idempotency_key: idempotencyKey,
       user_id: userId,
       tenant_id: tenantId,

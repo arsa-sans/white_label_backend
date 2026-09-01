@@ -12,6 +12,7 @@ import {
   ReviewOrganizerDto,
   AuditLogItem,
 } from './admin.types';
+import { sendOrganizerApprovalEmail } from '../../utils/mailer';
 
 export class AdminService {
   constructor(private repo: AdminRepository = adminRepository) {}
@@ -91,6 +92,10 @@ export class AdminService {
     }
 
     const updated = this.repo.updateUserApproval(userId, dto.approval_status);
+
+    if (dto.approval_status === 'approved') {
+      sendOrganizerApprovalEmail(user.email, user.name, user.company_name).catch(() => {});
+    }
 
     this.repo.appendAuditLog({
       action: dto.approval_status === 'approved' ? 'ORGANIZER_APPROVED' : 'ORGANIZER_REJECTED',

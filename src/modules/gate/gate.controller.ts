@@ -36,15 +36,20 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
       scanned_at: new Date().toISOString(),
     };
 
-    // Broadcast to all connected clients (gate staff, organizer dashboard, etc.)
+    // Broadcast to all connected clients (gate staff, organizer dashboard, visitor my-tickets, etc.)
     io.emit('gate:scan_result', scanNotification);
 
-    // Also emit to specific event room if ticket has event context
     if (result.ticket_id) {
+      io.emit('ticket:scanned', {
+        ticket_id: result.ticket_id,
+        result: result.result,
+        status: 'used',
+        scanned_at: scanNotification.scanned_at,
+      });
       io.to(`event:${result.ticket_id}`).emit('gate:scan_result', scanNotification);
     }
 
-    logger.debug(`[Gate] Socket.IO emitted gate:scan_result: ${result.result} for ticket ${result.ticket_id || 'unknown'}`);
+    logger.debug(`[Gate] Socket.IO emitted gate:scan_result & ticket:scanned: ${result.result} for ticket ${result.ticket_id || 'unknown'}`);
   } catch (socketErr) {
     // Socket.IO failure should not break the scan response
     logger.warn('[Gate] Failed to emit Socket.IO event (non-fatal)', socketErr);

@@ -47,6 +47,9 @@ import {
   createEventSession,
   updateEventSession,
   deleteEventSession,
+  getStaffFeeStatus,
+  createStaffFeeOrder,
+  confirmStaffFee,
 } from './event.controller';
 
 const router = Router();
@@ -87,6 +90,28 @@ router.delete(
   authenticate,
   requireRole(['organizer', 'admin']),
   removeEventStaff
+);
+
+/* ── SaaS staff fee routes ───────────────────────────────── */
+router.get(
+  '/:id/staff-fee-status',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  getStaffFeeStatus
+);
+
+router.post(
+  '/:id/staff-fee-order',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  createStaffFeeOrder
+);
+
+router.post(
+  '/:id/staff-fee-confirm',
+  authenticate,
+  requireRole(['organizer', 'admin']),
+  confirmStaffFee
 );
 
 router.post(

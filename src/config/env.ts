@@ -77,6 +77,14 @@ export const env = {
   ADMIN_EMAIL: optional('ADMIN_EMAIL', 'arsaprayata72@gmail.com'),
   SENDGRID_API_KEY: optional('SENDGRID_API_KEY', ''),
 
+  // SMTP (Gmail / Custom Mailer)
+  SMTP_HOST: optional('SMTP_HOST', 'smtp.gmail.com'),
+  SMTP_PORT: Number(optional('SMTP_PORT', '587')),
+  SMTP_SECURE: optional('SMTP_SECURE', 'false') === 'true',
+  SMTP_USER: optional('SMTP_USER', ''),
+  SMTP_PASS: optional('SMTP_PASS', ''),
+  EMAIL_FROM: optional('EMAIL_FROM', 'WhiteLabel Support <noreply@whitelabel.id>'),
+
   // CORS
   CORS_ORIGIN: optional('CORS_ORIGIN', 'http://localhost:3000'),
 };
