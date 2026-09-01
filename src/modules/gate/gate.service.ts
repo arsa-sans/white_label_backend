@@ -10,7 +10,7 @@ import { redis } from '../../config/redis';
 import { logger } from '../../utils/logger';
 import { gateRepository } from './gate.repository';
 import { GateScanResult, OfflineScanLog } from './gate.types';
-import { DemoGateScanLog } from '../../database/dataStore';
+import { dataStore, DemoGateScanLog } from '../../database/dataStore';
 
 const QR_WINDOW_SEC = 30;
 
@@ -32,7 +32,9 @@ export class GateService {
   public async validateGateScan(
     qrToken: string,
     gateDeviceId: string = 'GATE-WEB-01',
-    staffEmail?: string
+    staffEmail?: string,
+    staffUserId?: string,
+    staffRole?: string
   ): Promise<GateScanResult> {
     const startTime = Date.now();
 
@@ -77,6 +79,21 @@ export class GateService {
         };
       }
 
+      // Check event assignment if user is gate_staff
+      if (staffRole === 'gate_staff' && staffUserId) {
+        const isAssigned = dataStore.eventStaff.some(
+          (es) => es.user_id === staffUserId && es.event_id === ticket!.event_id && es.role === 'gate_staff'
+        );
+        if (!isAssigned) {
+          return {
+            result: 'invalid',
+            ticket_id: ticket.id,
+            message: 'Anda tidak ditugaskan untuk menjaga event ini.',
+            processing_time_ms: Date.now() - startTime,
+          };
+        }
+      }
+
       const expectedSig = deriveHmac(ticket.id, ticket.qr_seed, w);
       if (sig !== expectedSig && sig !== expectedSig.substring(0, 16)) {
         return {
@@ -87,12 +104,16 @@ export class GateService {
         };
       }
 
+      const owner = dataStore.users.find((u) => u.id === ticket!.user_id);
+      const event = gateRepository.getEventById(ticket.event_id);
+      const scanTime = new Date().toISOString();
+
       if (ticket.status === 'used') {
         const scanLog: DemoGateScanLog = {
           id: `scan-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
           ticket_id: ticket.id,
           gate_device_id: gateDeviceId,
-          scanned_at: new Date().toISOString(),
+          scanned_at: scanTime,
           result: 'duplicate',
           staff_name: staffEmail || 'Gate Staff',
         };
@@ -103,6 +124,11 @@ export class GateService {
           ticket_id: ticket.id,
           seat_name: ticket.tier_name,
           category: ticket.tier_name,
+          tier_name: ticket.tier_name,
+          event_name: event?.name || ticket.event_id,
+          ticket_owner_name: owner?.name || 'Pengunjung',
+          ticket_owner_email: owner?.email || '',
+          scanned_at: scanTime,
           message: 'TICKET ALREADY USED FOR ENTRY',
           processing_time_ms: Date.now() - startTime,
         };
@@ -123,20 +149,22 @@ export class GateService {
         id: `scan-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
         ticket_id: ticket.id,
         gate_device_id: gateDeviceId,
-        scanned_at: new Date().toISOString(),
+        scanned_at: scanTime,
         result: 'valid',
         staff_name: staffEmail || 'Gate Staff',
       };
       gateRepository.appendScanLog(scanLog);
-
-      const event = gateRepository.getEventById(ticket.event_id);
 
       return {
         result: 'valid',
         ticket_id: ticket.id,
         seat_name: ticket.tier_name,
         category: ticket.tier_name,
+        tier_name: ticket.tier_name,
         event_name: event?.name || ticket.event_id,
+        ticket_owner_name: owner?.name || 'Pengunjung',
+        ticket_owner_email: owner?.email || '',
+        scanned_at: scanTime,
         message: 'ENTRY GRANTED - VALID TICKET',
         processing_time_ms: Date.now() - startTime,
       };

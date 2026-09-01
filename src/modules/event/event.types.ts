@@ -14,6 +14,8 @@ export interface CreateEventDto {
   venue_map_url?: string;
   poster_url?: string;
   terms_conditions?: string;
+  sale_start_at?: string;
+  sale_end_at?: string;
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {}

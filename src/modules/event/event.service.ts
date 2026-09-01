@@ -109,6 +109,7 @@ export class EventService {
       available_quota: number;
       sold_percent: number;
     };
+    sale_status: 'upcoming' | 'open' | 'closed';
   } | null {
     const event = eventRepository.findById(id);
     if (!event) return null;
@@ -116,6 +117,14 @@ export class EventService {
     const tiers = eventRepository.getTiersByEventId(id);
     const totalQuota = tiers.reduce((acc, t) => acc + t.quota, 0);
     const totalSold = tiers.reduce((acc, t) => acc + t.sold, 0);
+
+    let saleStatus: 'upcoming' | 'open' | 'closed' = 'open';
+    const now = new Date();
+    if (event.sale_start_at && now < new Date(event.sale_start_at)) {
+      saleStatus = 'upcoming';
+    } else if (event.sale_end_at && now > new Date(event.sale_end_at)) {
+      saleStatus = 'closed';
+    }
 
     return {
       event,
@@ -126,6 +135,7 @@ export class EventService {
         available_quota: totalQuota - totalSold,
         sold_percent: totalQuota > 0 ? Math.round((totalSold / totalQuota) * 100) : 0,
       },
+      sale_status: saleStatus,
     };
   }
 
@@ -174,6 +184,8 @@ export class EventService {
       venue_map_url: dto.venue_map_url,
       poster_url: dto.poster_url,
       terms_conditions: dto.terms_conditions,
+      sale_start_at: dto.sale_start_at,
+      sale_end_at: dto.sale_end_at,
     };
 
     eventRepository.create(newEvent);
@@ -266,6 +278,8 @@ export class EventService {
       'venue_map_url',
       'poster_url',
       'terms_conditions',
+      'sale_start_at',
+      'sale_end_at',
     ];
 
     for (const key of allowed) {

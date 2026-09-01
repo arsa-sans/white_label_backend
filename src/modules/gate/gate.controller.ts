@@ -19,7 +19,13 @@ export async function validateGateScan(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const result = await gateService.validateGateScan(qr_token, gate_device_id, req.user?.email);
+  const result = await gateService.validateGateScan(
+    qr_token,
+    gate_device_id,
+    req.user?.email,
+    req.user?.userId,
+    req.user?.role
+  );
 
   // Emit real-time Socket.IO notification for all scan results
   try {

@@ -26,6 +26,8 @@ export const createEventSchema = z.object({
   capacity: z.union([z.number(), z.string().transform((v) => Number(v))]).optional(),
   banner_url: z.string().optional(),
   status: z.enum(['draft', 'published', 'ended']).optional(),
+  sale_start_at: z.string().optional(),
+  sale_end_at: z.string().optional(),
 });
 
 export const upsertTicketTierSchema = z.object({
@@ -73,6 +75,7 @@ export async function getEventById(req: Request, res: Response): Promise<void> {
         ...detail.event,
         tiers: detail.tiers,
         stats: detail.stats,
+        sale_status: detail.sale_status,
       },
       'Event details retrieved successfully'
     )
@@ -103,6 +106,12 @@ export async function createEvent(req: Request, res: Response): Promise<void> {
     capacity,
     banner_url,
     status = 'draft',
+    sale_start_at,
+    sale_end_at,
+    guest_stars,
+    venue_map_url,
+    poster_url,
+    terms_conditions,
   } = req.body;
 
   if (!name || !start_date || !end_date || !location) {
@@ -121,6 +130,12 @@ export async function createEvent(req: Request, res: Response): Promise<void> {
     capacity,
     banner_url,
     status,
+    sale_start_at,
+    sale_end_at,
+    guest_stars,
+    venue_map_url,
+    poster_url,
+    terms_conditions,
   };
 
   const newEvent = eventService.createEvent(actor.tenantId, actor.userId, dto);

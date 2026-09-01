@@ -4,6 +4,10 @@ export interface GateScanResult {
   seat_name?: string;
   category?: string;
   event_name?: string;
+  tier_name?: string;
+  ticket_owner_name?: string;
+  ticket_owner_email?: string;
+  scanned_at?: string;
   message: string;
   processing_time_ms: number;
 }

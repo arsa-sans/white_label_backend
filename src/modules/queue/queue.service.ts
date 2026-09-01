@@ -183,6 +183,21 @@ function isRedisReady(): boolean {
 
 export class QueueService {
   public async joinQueue(eventId: string, userId: string): Promise<JoinQueueResult> {
+    const event = dataStore.events.find((e) => e.id === eventId);
+    if (event) {
+      const now = new Date();
+      if (event.sale_start_at && now < new Date(event.sale_start_at)) {
+        const err: any = new Error('Penjualan tiket belum dimulai');
+        err.statusCode = 400;
+        throw err;
+      }
+      if (event.sale_end_at && now > new Date(event.sale_end_at)) {
+        const err: any = new Error('Penjualan tiket sudah ditutup');
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
     const timestamp = Date.now();
     const sessionId = `sess-${userId}-${eventId}`;
 
