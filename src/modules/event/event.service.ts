@@ -646,6 +646,18 @@ export class EventService {
       return { status: 404, message: 'Event tidak ditemukan' };
     }
 
+    if (event.start_date && dto.date) {
+      const eventStart = event.start_date.slice(0, 10);
+      const eventEnd = event.end_date ? event.end_date.slice(0, 10) : eventStart;
+      const sessionDate = dto.date.slice(0, 10);
+      if (sessionDate < eventStart || sessionDate > eventEnd) {
+        return {
+          status: 400,
+          message: `Tanggal sesi (${sessionDate}) harus berada di dalam rentang tanggal pelaksanaan event (${eventStart} s/d ${eventEnd})`,
+        };
+      }
+    }
+
     const session: DemoEventSession = {
       id: `sess-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       event_id: eventId,
@@ -669,6 +681,21 @@ export class EventService {
     const session = eventRepository.findSessionById(sessionId);
     if (!session || session.event_id !== eventId) {
       return { status: 404, message: 'Sesi event tidak ditemukan' };
+    }
+
+    if (dto.date) {
+      const event = eventRepository.findById(eventId);
+      if (event && event.start_date) {
+        const eventStart = event.start_date.slice(0, 10);
+        const eventEnd = event.end_date ? event.end_date.slice(0, 10) : eventStart;
+        const sessionDate = dto.date.slice(0, 10);
+        if (sessionDate < eventStart || sessionDate > eventEnd) {
+          return {
+            status: 400,
+            message: `Tanggal sesi (${sessionDate}) harus berada di dalam rentang tanggal pelaksanaan event (${eventStart} s/d ${eventEnd})`,
+          };
+        }
+      }
     }
 
     const updated = eventRepository.updateSession(sessionId, dto);
