@@ -14,7 +14,6 @@ import { QueueEntry, JoinQueueResult, QueueStatusResult } from './queue.types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIN_WAIT_SECONDS = 2;          // Minimum wait when transitioning
-const WAIT_PER_RANK_SECONDS = 5;     // Additional seconds per rank position
 const CHECKOUT_SESSION_TTL = 180;    // 3 minutes checkout session
 const MAX_CONCURRENT_CHECKOUT = 1;   // Strictly 1 user in checkout at a time
 const ADMITTED_TTL_MS = CHECKOUT_SESSION_TTL * 1000;
@@ -36,7 +35,8 @@ class InMemQueue {
       }
     }
     if (rank <= 0) return 0;
-    return currentRemaining + Math.max(0, rank - 1) * CHECKOUT_SESSION_TTL;
+    const activeWait = currentRemaining > 0 ? currentRemaining : (rank > 1 ? CHECKOUT_SESSION_TTL : 0);
+    return activeWait + Math.max(0, rank - 1) * CHECKOUT_SESSION_TTL;
   }
 
   public join(eventId: string, userId: string): { sessionId: string; rank: number; admitted: boolean; estimatedWaitSeconds?: number } {
@@ -338,7 +338,7 @@ export class QueueService {
       eventId,
       rank: resData.rank,
       admitted: resData.admitted,
-      estimatedWaitSeconds: resData.admitted ? undefined : (resData.estimatedWaitSeconds ?? 5),
+      estimatedWaitSeconds: resData.admitted ? undefined : resData.estimatedWaitSeconds,
       checkoutTtlSeconds: CHECKOUT_SESSION_TTL,
       activeCheckouts,
     };
@@ -490,7 +490,7 @@ export class QueueService {
           rank: rank + 1,
           total,
           admitted: false,
-          estimatedWaitSeconds: Math.max(MIN_WAIT_SECONDS, (rank + 1) * WAIT_PER_RANK_SECONDS),
+          estimatedWaitSeconds: inMemQueue.getEstimatedWait(eventId, rank + 1),
           checkoutTtlSeconds: CHECKOUT_SESSION_TTL,
         };
       } catch (err) {
@@ -511,7 +511,7 @@ export class QueueService {
       rank: status.rank,
       total: status.total,
       admitted: status.admitted,
-      estimatedWaitSeconds: status.admitted ? undefined : Math.max(status.rank, 0) * WAIT_PER_RANK_SECONDS,
+      estimatedWaitSeconds: status.admitted ? undefined : status.estimatedWaitSeconds,
       checkoutTtlSeconds: CHECKOUT_SESSION_TTL,
       checkoutExpiresAt,
     };
