@@ -13,10 +13,10 @@ import { logger } from '../../utils/logger';
 import { QueueEntry, JoinQueueResult, QueueStatusResult } from './queue.types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const MIN_WAIT_SECONDS = 5;          // Minimum wait even for rank 1
-const WAIT_PER_RANK_SECONDS = 3;     // Additional seconds per rank position
+const MIN_WAIT_SECONDS = 2;          // Minimum wait when transitioning
+const WAIT_PER_RANK_SECONDS = 5;     // Additional seconds per rank position
 const CHECKOUT_SESSION_TTL = 60;     // 1 minute checkout session
-const MAX_CONCURRENT_CHECKOUT = 2;   // Max concurrent users in checkout (demo)
+const MAX_CONCURRENT_CHECKOUT = 1;   // Strictly 1 user in checkout at a time
 const ADMITTED_TTL_MS = CHECKOUT_SESSION_TTL * 1000;
 
 // ─── In-Memory Queue Fallback ────────────────────────────────────────────────
@@ -25,45 +25,122 @@ class InMemQueue {
   private admitted: Map<string, QueueEntry> = new Map();
   private admitTimers: Map<string, NodeJS.Timeout> = new Map();
 
-  public join(eventId: string, userId: string): { sessionId: string; rank: number; admitted: boolean } {
-    let list = this.queues.get(eventId) || [];
+  public getEstimatedWait(eventId: string, rank: number): number {
+    this.cleanupExpiredAdmitted(eventId);
+    let currentRemaining = 0;
+    for (const adm of this.admitted.values()) {
+      if (adm.eventId === eventId && adm.admittedAt) {
+        const elapsed = Date.now() - adm.admittedAt;
+        const rem = Math.max(0, Math.ceil((ADMITTED_TTL_MS - elapsed) / 1000));
+        if (rem > currentRemaining) currentRemaining = rem;
+      }
+    }
+    if (currentRemaining > 0) {
+      return currentRemaining + Math.max(0, rank - 1) * CHECKOUT_SESSION_TTL;
+    }
+    return Math.max(2, rank * 5);
+  }
 
-    // Check if already admitted and session still valid
+  public join(eventId: string, userId: string): { sessionId: string; rank: number; admitted: boolean; estimatedWaitSeconds?: number } {
+    this.cleanupExpiredAdmitted(eventId);
+
+    const sessionId = `sess-${userId}-${eventId}`;
+
+    // 1. Check if already admitted and session still valid
     const existingAdmitted = Array.from(this.admitted.values()).find(
       (e) => e.eventId === eventId && e.userId === userId && e.admittedAt! + ADMITTED_TTL_MS > Date.now()
     );
     if (existingAdmitted) {
-      return { sessionId: existingAdmitted.sessionId, rank: 0, admitted: true };
+      return { sessionId: existingAdmitted.sessionId, rank: 0, admitted: true, estimatedWaitSeconds: 0 };
     }
 
-    // Clean up expired admitted entries
-    this.cleanupExpiredAdmitted();
+    let list = this.queues.get(eventId) || [];
 
-    // Check if already in queue
-    const existing = list.find((e) => e.userId === userId);
-    if (existing) {
-      const rank = list.findIndex((e) => e.userId === userId) + 1;
-      return { sessionId: existing.sessionId, rank, admitted: false };
+    // 2. Check if already in queue
+    const existingIndex = list.findIndex((e) => e.userId === userId);
+    if (existingIndex >= 0) {
+      const rank = existingIndex + 1;
+      const waitSeconds = this.getEstimatedWait(eventId, rank);
+      return { sessionId: list[existingIndex].sessionId, rank, admitted: false, estimatedWaitSeconds: waitSeconds };
     }
 
-    const sessionId = `sess-${userId}-${eventId}`;
+    const activeCount = this.getActiveCheckoutCount(eventId);
+
+    // 3. If slot is free and nobody is waiting ahead, admit IMMEDIATELY!
+    if (activeCount < MAX_CONCURRENT_CHECKOUT && list.length === 0) {
+      const entry: QueueEntry = { sessionId, userId, eventId, timestamp: Date.now(), admittedAt: Date.now() };
+      this.admitted.set(sessionId, entry);
+      logger.info(`[Queue] User ${userId} immediately admitted for event ${eventId} (slot free)`);
+      return { sessionId, rank: 0, admitted: true, estimatedWaitSeconds: 0 };
+    }
+
+    // 4. Otherwise, add to waiting queue
     const entry: QueueEntry = { sessionId, userId, eventId, timestamp: Date.now() };
     list.push(entry);
     this.queues.set(eventId, list);
 
     const rank = list.length;
-    const activeCheckouts = this.getActiveCheckoutCount(eventId);
+    const waitSeconds = this.getEstimatedWait(eventId, rank);
 
-    // Schedule auto-admit
-    const waitSeconds = Math.max(MIN_WAIT_SECONDS, rank * WAIT_PER_RANK_SECONDS);
-    this.scheduleAutoAdmit(eventId, sessionId, userId, waitSeconds);
+    // Schedule auto-admit retry loop
+    this.scheduleAutoAdmit(eventId, sessionId, userId, 2);
 
-    return { sessionId, rank, admitted: false };
+    return { sessionId, rank, admitted: false, estimatedWaitSeconds: waitSeconds };
+  }
+
+  public release(eventId: string, userIdOrSessionId: string): void {
+    for (const [key, entry] of this.admitted.entries()) {
+      if (entry.eventId === eventId && (entry.sessionId === userIdOrSessionId || entry.userId === userIdOrSessionId)) {
+        this.admitted.delete(key);
+        logger.info(`[Queue] Released checkout session ${key} for user ${entry.userId}`);
+      }
+    }
+
+    const list = this.queues.get(eventId) || [];
+    const filtered = list.filter((e) => e.userId !== userIdOrSessionId && e.sessionId !== userIdOrSessionId);
+    this.queues.set(eventId, filtered);
+
+    // Immediately try admitting next user
+    this.tryAutoAdmitNext(eventId);
+  }
+
+  public tryAutoAdmitNext(eventId: string): void {
+    this.cleanupExpiredAdmitted(eventId);
+    const activeCount = this.getActiveCheckoutCount(eventId);
+    if (activeCount >= MAX_CONCURRENT_CHECKOUT) {
+      return;
+    }
+
+    const list = this.queues.get(eventId) || [];
+    if (list.length === 0) return;
+
+    const nextEntry = list.shift();
+    if (!nextEntry) return;
+
+    nextEntry.admittedAt = Date.now();
+    this.admitted.set(nextEntry.sessionId, nextEntry);
+    this.queues.set(eventId, list);
+
+    const timerKey = `${eventId}:${nextEntry.sessionId}`;
+    const existingTimer = this.admitTimers.get(timerKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.admitTimers.delete(timerKey);
+    }
+
+    io.to(`event:${eventId}`).emit('queue_admitted', {
+      event_id: eventId,
+      session_id: nextEntry.sessionId,
+      user_id: nextEntry.userId,
+      checkout_ttl_seconds: CHECKOUT_SESSION_TTL,
+      timestamp: new Date().toISOString(),
+    });
+
+    logger.info(`[Queue] Auto-admitted next user in queue: ${nextEntry.userId} for event ${eventId}`);
   }
 
   private scheduleAutoAdmit(eventId: string, sessionId: string, userId: string, delaySec: number): void {
     const timerKey = `${eventId}:${sessionId}`;
-    // Clear existing timer if any
     const existingTimer = this.admitTimers.get(timerKey);
     if (existingTimer) clearTimeout(existingTimer);
 
@@ -75,45 +152,33 @@ class InMemQueue {
   }
 
   private tryAutoAdmit(eventId: string, sessionId: string, userId: string): void {
-    this.cleanupExpiredAdmitted();
+    this.cleanupExpiredAdmitted(eventId);
     const activeCount = this.getActiveCheckoutCount(eventId);
-
-    if (activeCount >= MAX_CONCURRENT_CHECKOUT) {
-      // Retry in 2 seconds
-      this.scheduleAutoAdmit(eventId, sessionId, userId, 2);
-      return;
-    }
 
     const list = this.queues.get(eventId) || [];
     const entryIndex = list.findIndex((e) => e.sessionId === sessionId);
-    if (entryIndex === -1) return; // Already removed
+    if (entryIndex === -1) return; // already handled
 
-    const entry = list.splice(entryIndex, 1)[0];
-    entry.admittedAt = Date.now();
-    this.admitted.set(sessionId, entry);
-    this.queues.set(eventId, list);
+    if (activeCount < MAX_CONCURRENT_CHECKOUT && entryIndex === 0) {
+      this.tryAutoAdmitNext(eventId);
+      return;
+    }
 
-    // Clean up timer
-    this.admitTimers.delete(`${eventId}:${sessionId}`);
-
-    // Notify via Socket.IO
-    io.to(`event:${eventId}`).emit('queue_admitted', {
-      event_id: eventId,
-      session_id: sessionId,
-      user_id: userId,
-      checkout_ttl_seconds: CHECKOUT_SESSION_TTL,
-      timestamp: new Date().toISOString(),
-    });
-
-    logger.info(`[Queue] Auto-admitted user ${userId} for event ${eventId}`);
+    this.scheduleAutoAdmit(eventId, sessionId, userId, 1.5);
   }
 
-  private cleanupExpiredAdmitted(): void {
+  private cleanupExpiredAdmitted(eventId?: string): void {
     const now = Date.now();
+    let hadExpired = false;
     for (const [key, entry] of this.admitted.entries()) {
       if (entry.admittedAt && entry.admittedAt + ADMITTED_TTL_MS <= now) {
         this.admitted.delete(key);
+        hadExpired = true;
+        logger.info(`[Queue] Expired checkout session ${key} cleaned up`);
       }
+    }
+    if (hadExpired && eventId) {
+      this.tryAutoAdmitNext(eventId);
     }
   }
 
@@ -126,22 +191,26 @@ class InMemQueue {
     return count;
   }
 
-  public getStatus(eventId: string, sessionId: string): { rank: number; total: number; admitted: boolean; admittedAt?: number } {
+  public getStatus(eventId: string, sessionId: string): { rank: number; total: number; admitted: boolean; admittedAt?: number; estimatedWaitSeconds?: number } {
+    this.cleanupExpiredAdmitted(eventId);
     const adm = this.admitted.get(sessionId);
     if (adm && adm.admittedAt! + ADMITTED_TTL_MS > Date.now()) {
-      return { rank: 0, total: 0, admitted: true, admittedAt: adm.admittedAt };
+      return { rank: 0, total: 0, admitted: true, admittedAt: adm.admittedAt, estimatedWaitSeconds: 0 };
     }
 
     const list = this.queues.get(eventId) || [];
     const index = list.findIndex((e) => e.sessionId === sessionId);
     if (index === -1) {
-      return { rank: -1, total: list.length, admitted: false };
+      return { rank: -1, total: list.length, admitted: false, estimatedWaitSeconds: 0 };
     }
 
-    return { rank: index + 1, total: list.length, admitted: false };
+    const rank = index + 1;
+    const estimatedWaitSeconds = this.getEstimatedWait(eventId, rank);
+    return { rank, total: list.length, admitted: false, estimatedWaitSeconds };
   }
 
   public isSessionValid(eventId: string, sessionId: string): { valid: boolean; remainingSeconds: number } {
+    this.cleanupExpiredAdmitted(eventId);
     const adm = this.admitted.get(sessionId);
     if (!adm || !adm.admittedAt) {
       return { valid: false, remainingSeconds: 0 };
@@ -152,6 +221,7 @@ class InMemQueue {
 
     if (remaining <= 0) {
       this.admitted.delete(sessionId);
+      this.tryAutoAdmitNext(eventId);
       return { valid: false, remainingSeconds: 0 };
     }
 
@@ -220,15 +290,32 @@ export class QueueService {
 
         // Add to queue
         const queueKey = `queue:${eventId}`;
+        const activeCheckouts = await this.getActiveCheckoutCountRedis(eventId);
+        const totalInQueue = await redis.zcard(queueKey);
+
+        // If slot is free and queue is empty, admit immediately!
+        if (activeCheckouts < MAX_CONCURRENT_CHECKOUT && totalInQueue === 0) {
+          await redis.setex(admittedKey, CHECKOUT_SESSION_TTL, JSON.stringify({ userId, admittedAt: Date.now() }));
+          logger.info(`[Queue] Redis immediately admitted user ${userId} for event ${eventId} (slot free)`);
+          return {
+            sessionId,
+            eventId,
+            rank: 0,
+            admitted: true,
+            expiresInSeconds: CHECKOUT_SESSION_TTL,
+            checkoutTtlSeconds: CHECKOUT_SESSION_TTL,
+            activeCheckouts: 1,
+          };
+        }
+
         await redis.zadd(queueKey, timestamp, sessionId);
         const rank = (await redis.zrank(queueKey, sessionId)) ?? 0;
-        const activeCheckouts = await this.getActiveCheckoutCountRedis(eventId);
 
-        // Calculate wait time
-        const waitSeconds = Math.max(MIN_WAIT_SECONDS, (rank + 1) * WAIT_PER_RANK_SECONDS);
+        // Calculate realistic wait time
+        const waitSeconds = inMemQueue.getEstimatedWait(eventId, rank + 1);
 
-        // Schedule auto-admit
-        this.scheduleRedisAutoAdmit(eventId, sessionId, userId, waitSeconds);
+        // Schedule auto-admit retry
+        this.scheduleRedisAutoAdmit(eventId, sessionId, userId, 2);
 
         return {
           sessionId,
@@ -247,17 +334,64 @@ export class QueueService {
     // Fallback to in-memory
     const resData = inMemQueue.join(eventId, userId);
     const activeCheckouts = inMemQueue.getActiveCheckoutCount(eventId);
-    const waitSeconds = Math.max(MIN_WAIT_SECONDS, resData.rank * WAIT_PER_RANK_SECONDS);
 
     return {
       sessionId: resData.sessionId,
       eventId,
       rank: resData.rank,
       admitted: resData.admitted,
-      estimatedWaitSeconds: resData.admitted ? undefined : waitSeconds,
+      estimatedWaitSeconds: resData.admitted ? undefined : (resData.estimatedWaitSeconds ?? 5),
       checkoutTtlSeconds: CHECKOUT_SESSION_TTL,
       activeCheckouts,
     };
+  }
+
+  public async releaseCheckoutSession(eventId: string, userIdOrSessionId: string): Promise<void> {
+    if (isRedisReady()) {
+      try {
+        const pattern = `queue:admitted:${eventId}:*`;
+        const keys = await redis.keys(pattern);
+        for (const key of keys) {
+          const val = await redis.get(key);
+          if (val) {
+            try {
+              const data = JSON.parse(val);
+              if (data.userId === userIdOrSessionId || key.includes(userIdOrSessionId)) {
+                await redis.del(key);
+                logger.info(`[Queue] Redis checkout session ${key} released`);
+              }
+            } catch {}
+          }
+        }
+        const queueKey = `queue:${eventId}`;
+        const sessionId = `sess-${userIdOrSessionId}-${eventId}`;
+        await redis.zrem(queueKey, sessionId);
+        await redis.zrem(queueKey, userIdOrSessionId);
+
+        // Immediately try auto-admitting next user in Redis
+        const nextSessions = await redis.zrange(queueKey, 0, 0);
+        if (nextSessions.length > 0) {
+          const nextSession = nextSessions[0];
+          const activeCount = await this.getActiveCheckoutCountRedis(eventId);
+          if (activeCount < MAX_CONCURRENT_CHECKOUT) {
+            await redis.zrem(queueKey, nextSession);
+            const nextAdmittedKey = `queue:admitted:${eventId}:${nextSession}`;
+            await redis.setex(nextAdmittedKey, CHECKOUT_SESSION_TTL, JSON.stringify({ admittedAt: Date.now() }));
+            io.to(`event:${eventId}`).emit('queue_admitted', {
+              event_id: eventId,
+              session_id: nextSession,
+              checkout_ttl_seconds: CHECKOUT_SESSION_TTL,
+              timestamp: new Date().toISOString(),
+            });
+            logger.info(`[Queue] Redis auto-admitted next user: ${nextSession}`);
+          }
+        }
+      } catch (err) {
+        logger.warn('[Queue] Redis release error', err);
+      }
+    }
+
+    inMemQueue.release(eventId, userIdOrSessionId);
   }
 
   private scheduleRedisAutoAdmit(eventId: string, sessionId: string, userId: string, delaySec: number): void {

@@ -12,11 +12,13 @@ import {
   getQueueStatus,
   validateCheckoutSession,
   admitQueue,
+  leaveQueue,
 } from './queue.controller';
 
 const router = Router();
 
 router.post('/join', authenticate, joinQueue);
+router.post('/leave', authenticate, leaveQueue);
 router.get('/status', authenticate, getQueueStatus);
 router.get('/validate-session', authenticate, validateCheckoutSession);
 router.post('/admit', authenticate, requireRole(['organizer', 'admin', 'superadmin']), admitQueue);

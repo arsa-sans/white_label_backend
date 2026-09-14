@@ -451,6 +451,9 @@ export async function processPaymentService(
     event_id: order.event_id,
   });
 
+  // Release checkout slot so next person waiting in queue can enter immediately
+  await queueService.releaseCheckoutSession(order.event_id, userId);
+
   return { order, tickets: issuedTickets };
 }
 
@@ -567,6 +570,9 @@ export async function processWebhookService(
       order_id: order.id,
       event_id: order.event_id,
     });
+
+    // Release checkout slot for waiting queue user
+    await queueService.releaseCheckoutSession(order.event_id, order.user_id);
   }
 
   return { order_id, new_status: newStatus, tickets_issued: ticketsIssued, skipped: false };

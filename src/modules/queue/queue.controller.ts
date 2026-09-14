@@ -117,3 +117,19 @@ export async function admitQueue(req: Request, res: Response): Promise<void> {
     )
   );
 }
+
+export async function leaveQueue(req: Request, res: Response): Promise<void> {
+  const { event_id } = req.body;
+  const userId = req.user?.userId;
+
+  if (!event_id) {
+    res.status(400).json(ApiResponse.error('event_id is required', 400));
+    return;
+  }
+
+  if (userId) {
+    await queueService.releaseCheckoutSession(event_id, userId);
+  }
+
+  res.json(ApiResponse.success(null, 'Sesi antrian/checkout berhasil diakhiri'));
+}
