@@ -8,48 +8,44 @@ import { dataStore, DemoRefundRequest } from '../../database/dataStore';
 import { RefundRequest, CreateRefundInput, ReviewRefundInput } from './refund.types';
 
 export class RefundRepository {
-  async findById(id: string, tenantId: string): Promise<RefundRequest | null> {
+  async findById(id: string, tenantId?: string): Promise<RefundRequest | null> {
     const item = dataStore.refundRequests.find(
-      (r) => r.id === id && r.tenant_id === tenantId
+      (r) => r.id === id && (!tenantId || r.tenant_id === tenantId)
     );
-    return item ? { ...item } : null;
+    return item ? ({ ...item } as RefundRequest) : null;
   }
 
-  async listByUser(userId: string, tenantId: string): Promise<RefundRequest[]> {
+  async listByUser(userId: string, tenantId?: string): Promise<RefundRequest[]> {
     return dataStore.refundRequests
-      .filter((r) => r.user_id === userId && r.tenant_id === tenantId)
-      .map((r) => ({ ...r }));
+      .filter((r) => r.user_id === userId && (!tenantId || r.tenant_id === tenantId))
+      .map((r) => ({ ...r } as RefundRequest));
   }
 
-  async listAll(tenantId: string, eventId?: string): Promise<RefundRequest[]> {
+  async listAll(tenantId?: string, eventId?: string): Promise<RefundRequest[]> {
     return dataStore.refundRequests
       .filter((r) => {
-        if (r.tenant_id !== tenantId) return false;
-        if (eventId && r.target_event_id && r.target_event_id !== eventId) return false;
+        if (tenantId && r.tenant_id !== tenantId) return false;
         return true;
       })
-      .map((r) => ({ ...r }));
+      .map((r) => ({ ...r } as RefundRequest));
   }
 
   async create(input: CreateRefundInput, calculatedAmount?: number): Promise<RefundRequest> {
     const newRequest: DemoRefundRequest = {
       id: `ref-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       tenant_id: input.tenant_id,
-      order_id: input.order_id,
+      order_id: input.order_id || '',
       user_id: input.user_id,
       ticket_id: input.ticket_id,
-      type: input.type,
+      type: 'refund',
       reason: input.reason,
       status: 'pending',
       refund_amount: calculatedAmount,
-      target_event_id: input.target_event_id,
-      target_tier_id: input.target_tier_id,
-      target_session_id: input.target_session_id,
       created_at: new Date().toISOString(),
     };
 
     dataStore.refundRequests.push(newRequest);
-    return { ...newRequest };
+    return { ...newRequest } as RefundRequest;
   }
 
   async updateStatus(
@@ -57,7 +53,7 @@ export class RefundRepository {
     tenantId: string,
     input: ReviewRefundInput
   ): Promise<RefundRequest | null> {
-    const item = dataStore.refundRequests.find((r) => r.id === id && r.tenant_id === tenantId);
+    const item = dataStore.refundRequests.find((r) => r.id === id && (!tenantId || r.tenant_id === tenantId));
     if (!item) return null;
 
     item.status = input.status;
@@ -66,7 +62,7 @@ export class RefundRepository {
     item.reviewed_by = input.admin_id;
     item.reviewed_at = new Date().toISOString();
 
-    return { ...item };
+    return ({ ...item } as unknown as RefundRequest);
   }
 }
 

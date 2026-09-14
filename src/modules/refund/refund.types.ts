@@ -4,7 +4,7 @@
  * Types for the Refund & Reschedule system with Midtrans Direct Refund support.
  */
 
-export type RefundType = 'refund' | 'reschedule';
+export type RefundType = 'refund';
 export type RefundStatus = 'pending' | 'approved' | 'rejected';
 
 export interface RefundRequest {
@@ -17,9 +17,6 @@ export interface RefundRequest {
   reason: string;
   status: RefundStatus;
   refund_amount?: number;
-  target_event_id?: string;
-  target_tier_id?: string;
-  target_session_id?: string;
   admin_notes?: string;
   reviewed_by?: string;
   reviewed_at?: string;
@@ -27,15 +24,12 @@ export interface RefundRequest {
 }
 
 export interface CreateRefundInput {
-  order_id: string;
+  order_id?: string;
   user_id: string;
   tenant_id: string;
   ticket_id?: string;
-  type: RefundType;
+  type?: RefundType;
   reason: string;
-  target_event_id?: string;
-  target_tier_id?: string;
-  target_session_id?: string;
 }
 
 export interface ReviewRefundInput {

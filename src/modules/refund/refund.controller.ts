@@ -17,17 +17,11 @@ export const createRefundRequest = asyncHandler(async (req: Request, res: Respon
     return res.status(401).json(ApiResponse.error('Unauthorized', 401));
   }
 
-  const { order_id, ticket_id, type, reason, target_event_id, target_tier_id } = req.body;
+  const { order_id, ticket_id, reason } = req.body;
 
-  if (!order_id || !type || !reason) {
+  if ((!order_id && !ticket_id) || !reason) {
     return res.status(400).json(
-      ApiResponse.error('Field order_id, type, dan reason wajib diisi', 400)
-    );
-  }
-
-  if (type !== 'refund' && type !== 'reschedule') {
-    return res.status(400).json(
-      ApiResponse.error("Type harus 'refund' atau 'reschedule'", 400)
+      ApiResponse.error('ID pesanan / tiket dan alasan refund wajib diisi', 400)
     );
   }
 
@@ -36,14 +30,12 @@ export const createRefundRequest = asyncHandler(async (req: Request, res: Respon
     user_id: userId,
     tenant_id: tenantId,
     ticket_id,
-    type,
+    type: 'refund',
     reason,
-    target_event_id,
-    target_tier_id,
   });
 
   return res.status(201).json(
-    ApiResponse.success(result, 'Permohonan refund/reschedule berhasil diajukan dan sedang ditinjau')
+    ApiResponse.success(result, 'Permohonan refund berhasil diajukan dan sedang ditinjau organizer')
   );
 });
 

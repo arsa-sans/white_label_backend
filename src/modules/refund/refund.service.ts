@@ -23,42 +23,67 @@ export class RefundService {
   constructor(private repo: RefundRepository = refundRepository) {}
 
   async createRefundRequest(input: CreateRefundInput): Promise<RefundRequest> {
-    const order = dataStore.orders.find(
-      (o) => o.id === input.order_id && o.tenant_id === input.tenant_id
-    );
+    let order: (typeof dataStore.orders)[0] | undefined;
+    let ticket: (typeof dataStore.tickets)[0] | undefined;
 
-    if (!order) {
-      throw new Error(`Pesanan dengan ID "${input.order_id}" tidak ditemukan.`);
+    // 1. If ticket_id provided, look up ticket first
+    if (input.ticket_id) {
+      ticket = dataStore.tickets.find((t) => t.id === input.ticket_id);
     }
 
-    if (order.user_id !== input.user_id) {
-      throw new Error('Anda tidak memiliki akses ke pesanan ini.');
+    // 2. If order_id provided, look up order
+    if (input.order_id) {
+      order = dataStore.orders.find((o) => o.id === input.order_id);
+      // What if input.order_id was actually a ticket ID?
+      if (!order && !ticket) {
+        ticket = dataStore.tickets.find((t) => t.id === input.order_id);
+        if (ticket) {
+          input.ticket_id = ticket.id;
+        }
+      }
+    }
+
+    // 3. Connect ticket to order if order not found yet
+    if (!order && ticket) {
+      order = dataStore.orders.find((o) => o.id === ticket!.order_id);
+    }
+
+    if (!order) {
+      throw new Error(`Pesanan atau tiket tidak ditemukan dalam sistem.`);
+    }
+
+    // Normalize order_id and tenant_id
+    input.order_id = order.id;
+    input.tenant_id = order.tenant_id;
+    input.type = 'refund';
+
+    // Verify ownership
+    if (order.user_id !== input.user_id && ticket?.user_id !== input.user_id) {
+      throw new Error('Anda tidak memiliki akses ke tiket / pesanan ini.');
     }
 
     if (order.status !== 'paid') {
-      throw new Error(`Pengajuan refund/reschedule hanya berlaku untuk pesanan berstatus 'paid' (status saat ini: '${order.status}').`);
+      throw new Error(`Pengajuan refund hanya berlaku untuk pesanan yang telah dibayar (status saat ini: '${order.status}').`);
     }
 
-    // Check if there is already an active pending request for this order
+    // Check if ticket is valid
+    if (ticket) {
+      if (ticket.status !== 'valid') {
+        throw new Error(`Tiket tidak memenuhi syarat refund (status saat ini: '${ticket.status}').`);
+      }
+    }
+
+    // Check if there is already an active pending refund for this ticket or order
     const existing = dataStore.refundRequests.find(
-      (r) => r.order_id === input.order_id && r.status === 'pending'
+      (r) =>
+        r.status === 'pending' &&
+        ((input.ticket_id && r.ticket_id === input.ticket_id) || (!input.ticket_id && r.order_id === input.order_id))
     );
     if (existing) {
-      throw new Error('Permohonan refund/reschedule untuk pesanan ini sedang dalam proses peninjauan.');
+      throw new Error('Permohonan refund untuk tiket/pesanan ini sedang dalam proses peninjauan.');
     }
 
-    let calculatedAmount = order.amount;
-    if (input.ticket_id) {
-      const ticket = dataStore.tickets.find((t) => t.id === input.ticket_id);
-      if (!ticket) {
-        throw new Error(`Tiket dengan ID "${input.ticket_id}" tidak ditemukan.`);
-      }
-      if (ticket.status !== 'valid') {
-        throw new Error(`Tiket tidak memenuhi syarat refund/reschedule (status: '${ticket.status}').`);
-      }
-      calculatedAmount = ticket.price;
-    }
-
+    const calculatedAmount = ticket ? ticket.price : order.amount;
     return this.repo.create(input, calculatedAmount);
   }
 
@@ -75,7 +100,7 @@ export class RefundService {
   }
 
   /**
-   * Review refund/reschedule request and execute Midtrans Refund API if approved.
+   * Review refund request and credit directly to WhiteLabel website E-Wallet.
    */
   async reviewRefundRequest(
     id: string,
@@ -95,101 +120,57 @@ export class RefundService {
 
     if (input.status === 'approved') {
       const order = dataStore.orders.find((o) => o.id === request.order_id);
+      const refundAmount = input.refund_amount || request.refund_amount || order?.amount || 0;
 
-      if (request.type === 'refund') {
-        const refundAmount = input.refund_amount || request.refund_amount || order?.amount || 0;
+      // Credit refund directly to user's website E-Wallet (regardless of original payment method)
+      const wallet = cashlessService.getOrCreateWallet(request.user_id);
+      wallet.balance += refundAmount;
 
-        // Credit refund directly to user's website E-Wallet (regardless of original payment method)
-        const wallet = cashlessService.getOrCreateWallet(request.user_id);
-        wallet.balance += refundAmount;
+      const walletTx: import('../../database/dataStore').DemoWalletTx = {
+        id: `tx-refund-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
+        wallet_id: wallet.id,
+        amount: refundAmount,
+        type: 'refund',
+        description: `Refund tiket pesanan ${request.order_id} — dana masuk ke E-Wallet website`,
+        created_at: new Date().toISOString(),
+      };
+      cashlessRepository.addTransaction(walletTx);
 
-        const walletTx: import('../../database/dataStore').DemoWalletTx = {
-          id: `tx-refund-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
-          wallet_id: wallet.id,
-          amount: refundAmount,
-          type: 'refund',
-          description: `Refund tiket pesanan ${request.order_id} — dana masuk ke E-Wallet website`,
-          created_at: new Date().toISOString(),
-        };
-        cashlessRepository.addTransaction(walletTx);
+      logger.info(
+        `[RefundService] Refund Rp ${refundAmount.toLocaleString('id-ID')} credited to wallet ${wallet.id} for user ${request.user_id}`
+      );
 
-        logger.info(
-          `[RefundService] Refund Rp ${refundAmount.toLocaleString('id-ID')} credited to wallet ${wallet.id} for user ${request.user_id}`
-        );
+      midtransResult = {
+        status_code: '200',
+        status_message: 'Refund berhasil dikreditkan ke Saldo E-Wallet Website',
+        order_id: request.order_id,
+        refund_amount: String(refundAmount),
+      };
 
-        midtransResult = {
-          status_code: '200',
-          status_message: 'Refund berhasil dikreditkan ke Saldo E-Wallet Website',
-          order_id: request.order_id,
-          refund_amount: String(refundAmount),
-        };
+      // Update Order Status
+      if (order) {
+        order.status = 'refunded';
+      }
 
-        // Update Order Status
-        if (order) {
-          order.status = 'refunded';
-        }
-
-        // Void / Refund Tickets & release quotas
-        if (request.ticket_id) {
-          const ticket = dataStore.tickets.find((t) => t.id === request.ticket_id);
-          if (ticket) {
-            ticket.status = 'refunded';
-            const tier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
-            if (tier) {
-              tier.sold = Math.max(0, tier.sold - 1);
-            }
-          }
-        } else if (order) {
-          const tickets = dataStore.tickets.filter((t) => t.order_id === order.id);
-          tickets.forEach((t) => {
-            t.status = 'refunded';
-            const tier = dataStore.ticketTiers.find((tr) => tr.id === t.tier_id);
-            if (tier) {
-              tier.sold = Math.max(0, tier.sold - 1);
-            }
-          });
-        }
-      } else if (request.type === 'reschedule') {
-        // Handle Reschedule to new event / tier / session
-        if (request.ticket_id) {
-          const ticket = dataStore.tickets.find((t) => t.id === request.ticket_id);
-          if (ticket) {
-            // Release old tier quota
-            const oldTier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
-            if (oldTier) {
-              oldTier.sold = Math.max(0, oldTier.sold - 1);
-            }
-
-            // Move to target event if specified
-            if (request.target_event_id) {
-              ticket.event_id = request.target_event_id;
-            }
-
-            // Move to target tier if specified
-            if (request.target_tier_id) {
-              const newTier = dataStore.ticketTiers.find((tr) => tr.id === request.target_tier_id);
-              if (newTier) {
-                const available = newTier.quota - newTier.sold;
-                if (available <= 0) {
-                  throw new Error(`Kuota tier '${newTier.name}' sudah habis. Tidak dapat reschedule.`);
-                }
-                ticket.tier_id = newTier.id;
-                ticket.tier_name = newTier.name;
-                newTier.sold += 1;
-              }
-            } else {
-              // Re-add to same tier if keeping tier
-              const sameTier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
-              if (sameTier) {
-                sameTier.sold += 1;
-              }
-            }
-
-            logger.info(
-              `[RefundService] Ticket ${ticket.id} rescheduled: event=${ticket.event_id}, tier=${ticket.tier_id}`
-            );
+      // Void / Refund Tickets & release quotas
+      if (request.ticket_id) {
+        const ticket = dataStore.tickets.find((t) => t.id === request.ticket_id);
+        if (ticket) {
+          ticket.status = 'refunded';
+          const tier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
+          if (tier) {
+            tier.sold = Math.max(0, tier.sold - 1);
           }
         }
+      } else if (order) {
+        const tickets = dataStore.tickets.filter((t) => t.order_id === order.id);
+        tickets.forEach((t) => {
+          t.status = 'refunded';
+          const tier = dataStore.ticketTiers.find((tr) => tr.id === t.tier_id);
+          if (tier) {
+            tier.sold = Math.max(0, tier.sold - 1);
+          }
+        });
       }
     }
 
