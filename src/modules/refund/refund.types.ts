@@ -19,6 +19,7 @@ export interface RefundRequest {
   refund_amount?: number;
   target_event_id?: string;
   target_tier_id?: string;
+  target_session_id?: string;
   admin_notes?: string;
   reviewed_by?: string;
   reviewed_at?: string;
@@ -34,6 +35,7 @@ export interface CreateRefundInput {
   reason: string;
   target_event_id?: string;
   target_tier_id?: string;
+  target_session_id?: string;
 }
 
 export interface ReviewRefundInput {

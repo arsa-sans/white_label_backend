@@ -16,6 +16,8 @@ import { publishEvent } from '../../queue/publisher';
 import { io } from '../../server';
 import { promoService } from '../promo/promo.service';
 import { queueService } from '../queue/queue.service';
+import { cashlessService } from '../cashless/cashless.service';
+import { cashlessRepository } from '../cashless/cashless.repository';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIDTRANS_SANDBOX_SNAP_BASE = 'https://app.sandbox.midtrans.com/snap/v1';
@@ -32,6 +34,7 @@ export interface CreateOrderInput {
   items?: CreateOrderItemInput[];
   seat_ids?: string[]; // legacy fallback
   payment_gateway?: string;
+  payment_method?: 'wallet' | 'midtrans';
   customer_name?: string;
   customer_email?: string;
   promo_code?: string;
@@ -254,6 +257,101 @@ export async function createOrderService(input: CreateOrderInput): Promise<Creat
         name: `Promo: ${appliedPromoCode}`,
       });
     }
+  }
+
+  // ── Wallet payment: deduct balance directly ─────────────────────────────
+  if (input.payment_method === 'wallet') {
+    const wallet = cashlessService.getOrCreateWallet(user_id);
+    if (wallet.balance < finalAmount) {
+      throw Object.assign(
+        new Error(`Saldo E-Wallet tidak mencukupi. Saldo: Rp ${wallet.balance.toLocaleString('id-ID')}, Dibutuhkan: Rp ${finalAmount.toLocaleString('id-ID')}`),
+        { statusCode: 402 }
+      );
+    }
+
+    const orderId = `ord-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+
+    // Deduct wallet balance
+    wallet.balance -= finalAmount;
+
+    const walletTx: import('../../database/dataStore').DemoWalletTx = {
+      id: `tx-pay-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
+      wallet_id: wallet.id,
+      amount: finalAmount,
+      type: 'payment',
+      description: `Pembelian tiket ${event.name} (Order: ${orderId})`,
+      created_at: new Date().toISOString(),
+    };
+    cashlessRepository.addTransaction(walletTx);
+
+    // Create order as already paid
+    const newOrder: DemoOrder = {
+      id: orderId,
+      tenant_id,
+      user_id,
+      event_id,
+      amount: finalAmount,
+      gross_amount: grossAmount,
+      discount_amount: discountAmount,
+      promo_code: appliedPromoCode || undefined,
+      items: orderItems,
+      status: 'paid',
+      idempotency_key,
+      payment_gateway: 'wallet',
+      gateway_ref: `WALLET-${wallet.id}-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+
+    dataStore.orders.push(newOrder);
+
+    // Record promo usage if discount was applied
+    if (appliedPromoCode && discountAmount > 0) {
+      const promo = dataStore.promoCodes.find(
+        (p) => p.code === appliedPromoCode && p.tenant_id === tenant_id
+      );
+      if (promo) {
+        promoService.recordUsage(promo.id, orderId, user_id, discountAmount).catch((err) =>
+          logger.warn('[PaymentService] Failed to record promo usage', err)
+        );
+      }
+    }
+
+    // Issue tickets immediately
+    const issuedTickets = await issueTicketsForOrder(orderId, user_id, tenant_id);
+
+    publishEvent(
+      'order.paid',
+      {
+        order_id: newOrder.id,
+        event_id: event_id,
+        user_id,
+        amount: finalAmount,
+        ticket_count: issuedTickets.length,
+        payment_gateway: 'wallet',
+      },
+      tenant_id
+    ).catch((err) => logger.warn('[PaymentService] Failed to publish order.paid', err));
+
+    io.to(`event:${event_id}`).emit('order_paid', {
+      order_id: newOrder.id,
+      event_id: event_id,
+    });
+
+    // Release checkout slot
+    await queueService.releaseCheckoutSession(event_id, user_id);
+
+    return {
+      order: newOrder,
+      snap_token: '',
+      redirect_url: '',
+      amount: finalAmount,
+      currency: 'IDR',
+      gateway: 'wallet',
+      expires_at: new Date().toISOString(),
+      event_name: event.name,
+      supported_methods: ['wallet'],
+      tickets: issuedTickets,
+    } as any;
   }
 
   const orderId = `ord-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;

@@ -19,6 +19,8 @@ import { requireRole } from '../../middlewares/rbac.middleware';
 import {
   getWallet,
   topupWallet,
+  confirmTopup,
+  topupWebhook,
   pairNfc,
   debitBooth,
   refundBoothTx,
@@ -33,6 +35,8 @@ const router = Router();
 
 router.get('/wallet', authenticate, getWallet);
 router.post('/wallet/topup', authenticate, topupWallet);
+router.post('/wallet/topup/confirm', authenticate, confirmTopup);
+router.post('/wallet/topup/webhook', topupWebhook);
 router.post('/wallet/pair-nfc', authenticate, pairNfc);
 
 router.get('/payment-methods', authenticate, getPaymentMethods);

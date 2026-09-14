@@ -71,14 +71,84 @@ export async function deletePaymentMethod(req: Request, res: Response): Promise<
   res.json(ApiResponse.success({ id: methodId }, 'Metode pembayaran berhasil dihapus'));
 }
 
-export async function topupWallet(_req: Request, res: Response): Promise<void> {
-  res.status(400).json(
-    ApiResponse.error(
-      'Fitur wallet top-up untuk Visitor telah dinonaktifkan. Gunakan metode pembayaran e-wallet langsung saat checkout.',
-      400
-    )
-  );
+export async function topupWallet(req: Request, res: Response): Promise<void> {
+  const userId = req.user?.userId;
+  if (!userId) {
+    res.status(401).json(ApiResponse.error('Authentication required', 401));
+    return;
+  }
+
+  const { amount } = req.body;
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    res.status(400).json(ApiResponse.error('Nominal top-up harus berupa angka positif', 400));
+    return;
+  }
+
+  try {
+    const result = await cashlessService.createTopupOrder(userId, amount);
+    res.status(201).json(
+      ApiResponse.success(result, 'Top-up order dibuat. Lanjutkan ke pembayaran Midtrans.')
+    );
+  } catch (err: any) {
+    const status = err.statusCode || 500;
+    res.status(status).json(ApiResponse.error(err.message || 'Gagal membuat top-up order', status));
+  }
 }
+
+export async function confirmTopup(req: Request, res: Response): Promise<void> {
+  const userId = req.user?.userId;
+  if (!userId) {
+    res.status(401).json(ApiResponse.error('Authentication required', 401));
+    return;
+  }
+
+  const { topup_order_id } = req.body;
+  if (!topup_order_id) {
+    res.status(400).json(ApiResponse.error('topup_order_id wajib diisi', 400));
+    return;
+  }
+
+  const result = cashlessService.confirmTopup(userId, topup_order_id);
+  if (result.status !== 200) {
+    res.status(result.status).json(ApiResponse.error(result.message || 'Gagal konfirmasi top-up', result.status));
+    return;
+  }
+
+  res.json(ApiResponse.success(result.data, `Top-up Rp ${result.data?.topup_order?.amount?.toLocaleString('id-ID')} berhasil! Saldo telah ditambahkan.`));
+}
+
+export async function topupWebhook(req: Request, res: Response): Promise<void> {
+  try {
+    const { order_id, transaction_status } = req.body;
+
+    if (!order_id || !order_id.startsWith('topup-')) {
+      res.status(200).json({ message: 'Not a topup order, ignored' });
+      return;
+    }
+
+    const topupOrder = (await import('../../database/dataStore')).dataStore.topupOrders.find(
+      (o: any) => o.id === order_id
+    );
+
+    if (!topupOrder) {
+      res.status(200).json({ message: 'Topup order not found' });
+      return;
+    }
+
+    if (transaction_status === 'capture' || transaction_status === 'settlement') {
+      if (topupOrder.status === 'pending') {
+        const result = cashlessService.confirmTopup(topupOrder.user_id, order_id);
+        res.status(200).json({ message: 'Topup confirmed via webhook', ...result });
+        return;
+      }
+    }
+
+    res.status(200).json({ message: 'Webhook processed' });
+  } catch (err: any) {
+    res.status(200).json({ message: 'Webhook error handled', error: (err as Error).message });
+  }
+}
+
 
 export async function pairNfc(req: Request, res: Response): Promise<void> {
   const { nfc_uid, target_user_id } = req.body;

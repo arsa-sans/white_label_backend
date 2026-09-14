@@ -70,6 +70,7 @@ export async function createOrder(req: Request, res: Response): Promise<void> {
       items: req.body.items,
       seat_ids: req.body.seat_ids,
       payment_gateway: req.body.payment_gateway,
+      payment_method: req.body.payment_method,
       customer_name: req.body.customer_name || req.user?.email,
       customer_email: req.body.customer_email || req.user?.email,
       promo_code: req.body.promo_code,

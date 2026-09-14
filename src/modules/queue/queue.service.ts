@@ -15,7 +15,7 @@ import { QueueEntry, JoinQueueResult, QueueStatusResult } from './queue.types';
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MIN_WAIT_SECONDS = 2;          // Minimum wait when transitioning
 const WAIT_PER_RANK_SECONDS = 5;     // Additional seconds per rank position
-const CHECKOUT_SESSION_TTL = 60;     // 1 minute checkout session
+const CHECKOUT_SESSION_TTL = 180;    // 3 minutes checkout session
 const MAX_CONCURRENT_CHECKOUT = 1;   // Strictly 1 user in checkout at a time
 const ADMITTED_TTL_MS = CHECKOUT_SESSION_TTL * 1000;
 
@@ -35,10 +35,8 @@ class InMemQueue {
         if (rem > currentRemaining) currentRemaining = rem;
       }
     }
-    if (currentRemaining > 0) {
-      return currentRemaining + Math.max(0, rank - 1) * CHECKOUT_SESSION_TTL;
-    }
-    return Math.max(2, rank * 5);
+    if (rank <= 0) return 0;
+    return currentRemaining + Math.max(0, rank - 1) * CHECKOUT_SESSION_TTL;
   }
 
   public join(eventId: string, userId: string): { sessionId: string; rank: number; admitted: boolean; estimatedWaitSeconds?: number } {

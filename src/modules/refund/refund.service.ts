@@ -10,6 +10,8 @@ import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { dataStore } from '../../database/dataStore';
 import { refundRepository, RefundRepository } from './refund.repository';
+import { cashlessService } from '../cashless/cashless.service';
+import { cashlessRepository } from '../cashless/cashless.repository';
 import {
   RefundRequest,
   CreateRefundInput,
@@ -97,19 +99,37 @@ export class RefundService {
       if (request.type === 'refund') {
         const refundAmount = input.refund_amount || request.refund_amount || order?.amount || 0;
 
-        // 1. Call Midtrans Direct Refund API
-        midtransResult = await this.callMidtransDirectRefund(
-          request.order_id,
-          refundAmount,
-          input.admin_notes || request.reason
+        // Credit refund directly to user's website E-Wallet (regardless of original payment method)
+        const wallet = cashlessService.getOrCreateWallet(request.user_id);
+        wallet.balance += refundAmount;
+
+        const walletTx: import('../../database/dataStore').DemoWalletTx = {
+          id: `tx-refund-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
+          wallet_id: wallet.id,
+          amount: refundAmount,
+          type: 'refund',
+          description: `Refund tiket pesanan ${request.order_id} — dana masuk ke E-Wallet website`,
+          created_at: new Date().toISOString(),
+        };
+        cashlessRepository.addTransaction(walletTx);
+
+        logger.info(
+          `[RefundService] Refund Rp ${refundAmount.toLocaleString('id-ID')} credited to wallet ${wallet.id} for user ${request.user_id}`
         );
 
-        // 2. Update Order Status
+        midtransResult = {
+          status_code: '200',
+          status_message: 'Refund berhasil dikreditkan ke Saldo E-Wallet Website',
+          order_id: request.order_id,
+          refund_amount: String(refundAmount),
+        };
+
+        // Update Order Status
         if (order) {
           order.status = 'refunded';
         }
 
-        // 3. Void / Refund Tickets & release quotas
+        // Void / Refund Tickets & release quotas
         if (request.ticket_id) {
           const ticket = dataStore.tickets.find((t) => t.id === request.ticket_id);
           if (ticket) {
@@ -130,24 +150,44 @@ export class RefundService {
           });
         }
       } else if (request.type === 'reschedule') {
-        // Handle Reschedule to new event / tier
-        if (request.target_event_id && request.ticket_id) {
+        // Handle Reschedule to new event / tier / session
+        if (request.ticket_id) {
           const ticket = dataStore.tickets.find((t) => t.id === request.ticket_id);
           if (ticket) {
+            // Release old tier quota
             const oldTier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
             if (oldTier) {
               oldTier.sold = Math.max(0, oldTier.sold - 1);
             }
 
-            ticket.event_id = request.target_event_id;
+            // Move to target event if specified
+            if (request.target_event_id) {
+              ticket.event_id = request.target_event_id;
+            }
+
+            // Move to target tier if specified
             if (request.target_tier_id) {
               const newTier = dataStore.ticketTiers.find((tr) => tr.id === request.target_tier_id);
               if (newTier) {
+                const available = newTier.quota - newTier.sold;
+                if (available <= 0) {
+                  throw new Error(`Kuota tier '${newTier.name}' sudah habis. Tidak dapat reschedule.`);
+                }
                 ticket.tier_id = newTier.id;
                 ticket.tier_name = newTier.name;
                 newTier.sold += 1;
               }
+            } else {
+              // Re-add to same tier if keeping tier
+              const sameTier = dataStore.ticketTiers.find((tr) => tr.id === ticket.tier_id);
+              if (sameTier) {
+                sameTier.sold += 1;
+              }
             }
+
+            logger.info(
+              `[RefundService] Ticket ${ticket.id} rescheduled: event=${ticket.event_id}, tier=${ticket.tier_id}`
+            );
           }
         }
       }

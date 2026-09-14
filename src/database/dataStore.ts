@@ -108,9 +108,20 @@ export interface DemoRefundRequest {
   refund_amount?: number;
   target_event_id?: string;
   target_tier_id?: string;
+  target_session_id?: string;
   admin_notes?: string;
   reviewed_by?: string;
   reviewed_at?: string;
+  created_at: string;
+}
+
+export interface DemoTopupOrder {
+  id: string;
+  user_id: string;
+  amount: number;
+  status: 'pending' | 'paid' | 'failed' | 'expired';
+  snap_token: string;
+  gateway_ref?: string;
   created_at: string;
 }
 
@@ -287,6 +298,9 @@ class DataStore {
 
   /** Refund requests */
   public refundRequests: DemoRefundRequest[] = [];
+
+  /** Topup orders */
+  public topupOrders: DemoTopupOrder[] = [];
 
   /** Event sessions (multi-day) — dibuat oleh organizer */
   public eventSessions: DemoEventSession[] = [];

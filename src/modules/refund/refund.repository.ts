@@ -44,6 +44,7 @@ export class RefundRepository {
       refund_amount: calculatedAmount,
       target_event_id: input.target_event_id,
       target_tier_id: input.target_tier_id,
+      target_session_id: input.target_session_id,
       created_at: new Date().toISOString(),
     };
 

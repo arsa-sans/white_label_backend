@@ -9,6 +9,8 @@ import { cashlessRepository } from './cashless.repository';
 import { publishEvent } from '../../queue/publisher';
 import { logger } from '../../utils/logger';
 import { DebitBoothDto } from './cashless.types';
+import { createMidtransSnapToken, isMidtransConfigured } from '../payment/payment.service';
+import { env } from '../../config/env';
 
 export class CashlessService {
   /**
@@ -45,11 +47,11 @@ export class CashlessService {
   ): { status: number; message?: string; data?: any } {
     const { type, account_number, account_name } = data;
 
-    const validTypes = ['dana', 'gopay', 'ovo', 'bank', 'bank_transfer', 'other'];
+    const validTypes = ['bank', 'bank_transfer', 'other'];
     if (!validTypes.includes(type)) {
       return {
         status: 400,
-        message: `Tipe e-wallet tidak valid. Pilih dari: ${validTypes.join(', ')}`,
+        message: `Tipe rekening tidak valid. Pilih dari: ${validTypes.join(', ')}`,
       };
     }
 
@@ -271,6 +273,128 @@ export class CashlessService {
     return {
       wallets_refunded: refundedCount,
       total_refunded_amount: totalRefundedAmount,
+    };
+  }
+
+  /**
+   * Create a top-up order with Midtrans Snap token
+   */
+  public async createTopupOrder(
+    userId: string,
+    amount: number
+  ): Promise<{ topup_order: any; snap_token: string; redirect_url: string; gateway: string }> {
+    if (amount < 10000) {
+      throw Object.assign(new Error('Minimal top-up Rp 10.000'), { statusCode: 400 });
+    }
+    if (amount > 10000000) {
+      throw Object.assign(new Error('Maksimal top-up Rp 10.000.000'), { statusCode: 400 });
+    }
+
+    const wallet = this.getOrCreateWallet(userId);
+    const orderId = `topup-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+
+    let snapToken = '';
+    let redirectUrl = '';
+    let gateway = 'simulation';
+
+    if (isMidtransConfigured()) {
+      try {
+        const snapResult = await createMidtransSnapToken({
+          orderId,
+          grossAmount: amount,
+          customerName: userId,
+          customerEmail: `${userId}@whitelabel.id`,
+          itemDetails: [{ id: 'TOPUP', price: amount, quantity: 1, name: 'Top Up Saldo E-Wallet' }],
+        });
+        snapToken = snapResult.token;
+        redirectUrl = snapResult.redirect_url;
+        gateway = 'midtrans_sandbox';
+      } catch (err) {
+        logger.warn(`[Cashless] Midtrans Snap failed for topup: ${(err as Error).message}`);
+      }
+    }
+
+    if (!snapToken) {
+      snapToken = `sim-topup-${Buffer.from(orderId).toString('base64url')}`;
+      const base = env.CORS_ORIGIN || 'http://localhost:3000';
+      redirectUrl = `${base}/payment-methods?topup_sim=true&order_id=${orderId}&amount=${amount}`;
+    }
+
+    const topupOrder = {
+      id: orderId,
+      user_id: userId,
+      amount,
+      status: 'pending' as const,
+      snap_token: snapToken,
+      created_at: new Date().toISOString(),
+    };
+
+    dataStore.topupOrders.push(topupOrder);
+
+    return {
+      topup_order: topupOrder,
+      snap_token: snapToken,
+      redirect_url: redirectUrl,
+      gateway,
+    };
+  }
+
+  /**
+   * Confirm top-up payment and add balance to wallet
+   */
+  public confirmTopup(
+    userId: string,
+    topupOrderId: string
+  ): { status: number; message?: string; data?: any } {
+    const topupOrder = dataStore.topupOrders.find(
+      (o) => o.id === topupOrderId && o.user_id === userId
+    );
+
+    if (!topupOrder) {
+      return { status: 404, message: 'Top-up order tidak ditemukan' };
+    }
+
+    if (topupOrder.status === 'paid') {
+      const wallet = this.getOrCreateWallet(userId);
+      return {
+        status: 200,
+        message: 'Top-up sudah dikonfirmasi sebelumnya',
+        data: { wallet, topup_order: topupOrder },
+      };
+    }
+
+    if (topupOrder.status !== 'pending') {
+      return { status: 400, message: `Top-up order status: ${topupOrder.status}` };
+    }
+
+    topupOrder.status = 'paid';
+    topupOrder.gateway_ref = `TOPUP-PAID-${Date.now()}`;
+
+    const wallet = this.getOrCreateWallet(userId);
+    wallet.balance += topupOrder.amount;
+
+    const tx: import('../../database/dataStore').DemoWalletTx = {
+      id: `tx-topup-${Date.now()}-${Math.floor(Math.random() * 8999 + 1000)}`,
+      wallet_id: wallet.id,
+      amount: topupOrder.amount,
+      type: 'topup',
+      description: `Top-up saldo via Midtrans (Order: ${topupOrderId})`,
+      created_at: new Date().toISOString(),
+    };
+
+    cashlessRepository.addTransaction(tx);
+
+    logger.info(
+      `[Cashless] Top-up confirmed: Rp ${topupOrder.amount.toLocaleString('id-ID')} added to wallet ${wallet.id} (user: ${userId})`
+    );
+
+    return {
+      status: 200,
+      data: {
+        wallet,
+        topup_order: topupOrder,
+        transaction: tx,
+      },
     };
   }
 
