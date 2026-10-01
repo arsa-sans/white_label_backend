@@ -51,12 +51,6 @@ export async function connectRedis(): Promise<void> {
   }
 }
 
-/**
- * Distributed lock helper (Redlock-lite pattern).
- * Returns true if lock acquired, false if already locked by someone else.
- *
- * SKILLS.md § Skill 1: seat:{seat_id} lock TTL 5 min (300000ms)
- */
 export async function acquireLock(
   key: string,
   value: string,
