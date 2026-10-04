@@ -64,9 +64,6 @@ export async function acquireLock(
   }
 }
 
-/**
- * Release lock only if current holder matches (prevents releasing someone else's lock)
- */
 export async function releaseLock(key: string, value: string): Promise<boolean> {
   try {
     const script = `
