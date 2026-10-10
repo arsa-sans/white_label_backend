@@ -1,14 +1,3 @@
-/**
- * src/utils/asyncHandler.ts
- * Wraps async route handlers to automatically forward errors to next(err).
- * Eliminates try/catch boilerplate in every controller.
- *
- * Usage:
- *   router.get('/events', asyncHandler(async (req, res) => {
- *     const events = await eventService.list();
- *     res.json(ApiResponse.success(events));
- *   }));
- */
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 
 type AsyncRequestHandler = (
