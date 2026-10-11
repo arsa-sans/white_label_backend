@@ -64,8 +64,6 @@ async function startServer() {
       logger.info(`[Server] Environment: ${env.NODE_ENV}`);
     });
 
-    // 6. Start cron sweeper — FASE 4 (SKILLS.md § Skill 1 point 5)
-    // Checks every 60 seconds for locked seats whose TTL has expired → releases them
     const SWEEPER_INTERVAL_MS = 60 * 1000;
     setInterval(() => {
       sweepExpiredSeats().catch((err) =>
